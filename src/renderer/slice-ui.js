@@ -173,7 +173,7 @@ function renderForm() {
   else {
     const ace = p && p.filaments && p.filaments.length ? p.filaments : null;
     body = `
-      <div class="fl-machine"><span>${esc(o.machine)}</span><button class="link" data-act="pickMachine">Değiştir</button></div>
+      <div class="fl-machine"><span>${esc(o.machine)}${o.engine ? ` · ${esc(o.engine)}` : ''}</span><button class="link" data-act="pickMachine">Değiştir</button></div>
       <label class="fl"><span>Kalite</span><select class="input" id="slProcess">${o.processes.map((x) => `<option value="${esc(x.name)}" ${x.name === SL.sel.process ? 'selected' : ''}>${esc(x.name.replace(/\s*@.*$/, ''))}</option>`).join('')}</select></label>
       ${ace ? `<div class="fl"><span>Filament (ACE yuvası)</span><div class="slots-pick">${ace.map((f) => `<button class="slot-chip ${SL.sel.slot === f.index ? 'on' : ''}" data-slot="${f.index}" title="Yuva ${f.index + 1}"><i style="background:${f.color}"></i>${esc(f.type)}<small>${f.index + 1}</small></button>`).join('')}
         <button class="slot-chip ${SL.sel.slot === -1 ? 'on' : ''}" data-slot="-1" title="ACE yerine yazıcının arkasındaki makara"><i class="ext"></i>Harici</button></div></div>` : ''}
@@ -297,6 +297,7 @@ async function doSlice() {
     const job = await api.slice({
       printerId: SL.printerId, modelPath: SL.model.path, machine: o.machine, process: SL.sel.process, filament: SL.sel.filament,
       overrides, scale: SL.sel.scale / 100, thumbnails: thumbs,
+      filamentColor: SL.sel.slot !== null && SL.sel.slot >= 0 ? currentColor() : null,
       prefs: { process: SL.sel.process, filament: SL.sel.filament, slot: SL.sel.slot, bedType: SL.sel.bedType, infill: SL.sel.infill, support: SL.sel.support, brim: SL.sel.brim },
     });
     const big = window.Viewer && window.Viewer.hasModel() ? window.Viewer.thumbnail(360, 240) : null;

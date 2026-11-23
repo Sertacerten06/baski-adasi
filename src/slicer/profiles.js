@@ -135,10 +135,11 @@ class Profiles {
       machine: machineName,
       model: machine.printer_model || machineName,
       bed: area.length ? { x0: Math.min(...xs), y0: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), z: Number(machine.printable_height) || 250 } : { x0: 0, y0: 0, w: 220, h: 220, z: 250 },
-      thumbnails: String(machine.thumbnails_format || 'PNG').toUpperCase() === 'PNG'
-        ? (Array.isArray(machine.thumbnails) ? machine.thumbnails : String(machine.thumbnails || '').split(','))
-          .map((s) => String(s).trim().split('x').map(Number)).filter(([w, h]) => w > 0 && h > 0 && w <= 600 && h <= 600)
-        : [],
+      // "230x110" (biçim thumbnails_format'ta) ya da "230x110/PNG"; yalnızca PNG üretiyoruz
+      thumbnails: (Array.isArray(machine.thumbnails) ? machine.thumbnails : String(machine.thumbnails || '').split(','))
+        .map((s) => { const [size, fmt] = String(s).trim().split('/'); return { size, fmt: String(fmt || machine.thumbnails_format || 'PNG').toUpperCase() }; })
+        .filter((t) => t.fmt === 'PNG')
+        .map((t) => t.size.split('x').map(Number)).filter(([w, h]) => w > 0 && h > 0 && w <= 600 && h <= 600),
       defaultProcess: first(machine.default_print_profile) || null,
       defaultFilament: first(machine.default_filament_profile) || null,
       processes,

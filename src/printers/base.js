@@ -31,6 +31,7 @@ class BaseDriver extends EventEmitter {
       caps: { light: false, speedMode: false, fan: false, upload: false, startPrint: false, sendPrint: false },
       modelFull: null,      // üreticinin tam model adı (ör. "Anycubic Kobra 3"), dilimleyici profili seçmek için
       cancelled: false,
+      lastFailure: null,    // { code, text, at } son başarısız baskının nedeni (yazıcı bildirdiyse)
     };
   }
 

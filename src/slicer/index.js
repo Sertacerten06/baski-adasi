@@ -1,8 +1,11 @@
-// Dilimleme servisi: dilimleyiciyi bulur, profilleri sunar, modeli okur, dilimler ve işleri tutar.
+// Dilimleme servisi: dilimleyicileri bulur, profilleri sunar, modeli okur, dilimler ve işleri tutar.
+// İki motor desteklenir: OrcaSlicer (her marka) ve Anycubic Slicer Next (Orca türevi, Anycubic profilleri).
+// Anycubic yazıcılarda Anycubic Slicer Next tercih edilir: çıktısı Kobra yazılımının beklediği
+// paint_info / ilk katman sınırları / EXCLUDE_OBJECT gibi satırları taşır.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { locate } = require('./locate');
+const { locateAll } = require('./locate');
 const { Profiles, first } = require('./profiles');
 const { loadPreview } = require('./mesh');
 const { runProcess, explain, parseStats, injectThumbnails } = require('./slice');
@@ -30,8 +33,7 @@ class SlicerService {
   constructor({ workRoot, getCustomExe }) {
     this.workRoot = workRoot;
     this.getCustomExe = getCustomExe;
-    this.slicer = undefined;
-    this.profiles = null;
+    this.engines = undefined;   // { orca: { slicer, profiles }, anycubic: { slicer, profiles } }
     this.jobs = new Map();
     this._cleanup();
   }
@@ -47,35 +49,63 @@ class SlicerService {
   }
 
   _ensure() {
-    if (this.slicer === undefined || (this.slicer && !fs.existsSync(this.slicer.exe))) {
-      this.slicer = locate(this.getCustomExe && this.getCustomExe());
-      this.profiles = this.slicer ? new Profiles(this.slicer.resources) : null;
+    const stale = this.engines && Object.values(this.engines).some((e) => !fs.existsSync(e.slicer.exe));
+    if (this.engines === undefined || stale) {
+      this.engines = {};
+      for (const [kind, s] of Object.entries(locateAll(this.getCustomExe && this.getCustomExe()))) {
+        this.engines[kind] = { slicer: s, profiles: new Profiles(s.resources) };
+      }
     }
-    return this.slicer;
+    return this.engines;
   }
 
   _require() {
-    if (!this._ensure()) throw new Error('Dilimleyici bulunamadı. Bilgisayarına OrcaSlicer kur, sonra tekrar dene.');
+    if (!Object.keys(this._ensure()).length) throw new Error('Dilimleyici bulunamadı. Bilgisayarına OrcaSlicer ya da Anycubic Slicer Next kur, sonra tekrar dene.');
   }
 
   info() {
-    const s = this._ensure();
-    return s ? { available: true, name: s.name, kind: s.kind, exe: s.exe } : { available: false };
+    const list = Object.values(this._ensure()).map((e) => ({ name: e.slicer.name, kind: e.slicer.kind, exe: e.slicer.exe }));
+    return list.length ? { available: true, name: list.map((l) => l.name).join(' + '), engines: list } : { available: false };
   }
 
-  refresh() { this.slicer = undefined; return this.info(); }
+  refresh() { this.engines = undefined; return this.info(); }
 
-  catalog() { this._require(); return this.profiles.catalog(); }
+  // Makine için motor: Anycubic makinelerinde Anycubic Slicer Next, yoksa/diğerlerinde OrcaSlicer
+  _engineFor(machine) {
+    const e = this._ensure();
+    const asn = e.anycubic && e.anycubic.profiles.has('machine', machine) && e.anycubic.profiles.vendorOf('machine', machine) === 'Anycubic';
+    if (asn) return e.anycubic;
+    if (e.orca && e.orca.profiles.has('machine', machine)) return e.orca;
+    if (e.anycubic && e.anycubic.profiles.has('machine', machine)) return e.anycubic;
+    throw new Error(`Makine profili bulunamadı: ${machine}`);
+  }
+
+  catalog() {
+    this._require();
+    const e = this._ensure();
+    return (e.orca || e.anycubic).profiles.catalog();
+  }
 
   machineFor(printer, cfg) {
     this._require();
-    if (cfg && cfg.slicerMachine && this.profiles.has('machine', cfg.slicerMachine)) return cfg.slicerMachine;
-    if (printer.kind === 'anycubic' && printer.modelFull) return this.profiles.machineForModel(printer.modelFull);
-    if (printer.kind === 'moonraker') return guessKlipper(this.profiles, `${printer.name} ${printer.uid || ''}`);
+    const e = this._ensure();
+    const all = [e.anycubic, e.orca].filter(Boolean);
+    if (cfg && cfg.slicerMachine && all.some((x) => x.profiles.has('machine', cfg.slicerMachine))) return cfg.slicerMachine;
+    if (printer.kind === 'anycubic' && printer.modelFull) {
+      for (const x of all) { const m = x.profiles.machineForModel(printer.modelFull); if (m) return m; }
+      return null;
+    }
+    if (printer.kind === 'moonraker') {
+      for (const x of [e.orca, e.anycubic].filter(Boolean)) { const m = guessKlipper(x.profiles, `${printer.name} ${printer.uid || ''}`); if (m) return m; }
+    }
     return null;
   }
 
-  options(machine) { this._require(); return this.profiles.compatible(machine); }
+  options(machine) {
+    this._require();
+    const eng = this._engineFor(machine);
+    return { ...eng.profiles.compatible(machine), engine: eng.slicer.name, engineKind: eng.slicer.kind };
+  }
 
   loadModel(filePath) {
     if (!isModel(filePath)) throw new Error('Desteklenen model dosyaları: STL, 3MF, OBJ, STEP');
@@ -90,30 +120,36 @@ class SlicerService {
     this._require();
     const { modelPath, machine, process: proc, filament, overrides = {}, scale = 1, orient = false, thumbnails = [] } = req;
     if (!modelPath || !fs.existsSync(modelPath)) throw new Error('Model dosyası bulunamadı');
+    const eng = this._engineFor(machine);
+    const profiles = eng.profiles;
     const id = crypto.randomBytes(6).toString('hex');
     const dir = path.join(this.workRoot, id);
     fs.mkdirSync(dir, { recursive: true });
-    const vendor = this.profiles.vendorOf('machine', machine);
-    if (!vendor) throw new Error(`Makine profili bulunamadı: ${machine}`);
-    const machineFile = this.profiles.locateFile('machine', machine, vendor).file;
+    const vendor = profiles.vendorOf('machine', machine);
+    let machineFile = profiles.locateFile('machine', machine, vendor).file;
+    // Bazı üretici dosyalarında "type" alanı yok (ebeveynden gelir); komut satırı onu dosyada istiyor.
+    // Kopyada adı/mirası aynı bırakılır ki dilimleyici onu hâlâ sistem profili olarak tanısın.
+    const mraw = profiles._read(machineFile);
+    if (mraw.type !== 'machine') {
+      machineFile = path.join(dir, 'machine.json');
+      fs.writeFileSync(machineFile, JSON.stringify({ ...mraw, type: 'machine' }));
+    }
 
-    // Kalite profili: zinciri birleştir, kullanıcı ayarlarını uygula. Orca, uyumluluk
+    // Kalite profili: zinciri birleştir, kullanıcı ayarlarını uygula. Dilimleyici, uyumluluk
     // listesinde makinenin adını görmezse "process not compatible" diyerek reddediyor.
-    const p = this.profiles.resolve('process', proc, vendor);
+    const p = profiles.resolve('process', proc, vendor);
     Object.assign(p, overrides, { name: 'Baski Adasi', from: 'User', inherits: '', compatible_printers: [machine], compatible_printers_condition: '' });
     const processFile = path.join(dir, 'process.json');
     fs.writeFileSync(processFile, JSON.stringify(p));
 
-    // Filament: makineyle uyumluysa sistem dosyası, değilse düzleştirilip uyumlu işaretlenir
-    const floc = this.profiles.locateFile('filament', filament, vendor);
-    if (!floc) throw new Error(`Filament profili bulunamadı: ${filament}`);
-    let filamentFile = floc.file;
-    const f = this.profiles.resolve('filament', filament, vendor);
-    if (!(Array.isArray(f.compatible_printers) && f.compatible_printers.includes(machine))) {
-      Object.assign(f, { from: 'User', inherits: '', compatible_printers: [machine], compatible_printers_condition: '' });
-      filamentFile = path.join(dir, 'filament.json');
-      fs.writeFileSync(filamentFile, JSON.stringify(f));
-    }
+    // Filament: her zaman düzleştirilmiş kopya (bazı dosyalarda "type" eksik), makineyle uyumlu
+    // işaretli. Renk verildiyse (ör. ACE yuvası) yazılır; Anycubic çıktısında paint_info'ya geçer.
+    if (!profiles.locateFile('filament', filament, vendor)) throw new Error(`Filament profili bulunamadı: ${filament}`);
+    const f = profiles.resolve('filament', filament, vendor);
+    Object.assign(f, { type: 'filament', name: f.name || filament, from: 'User', inherits: '', compatible_printers: [machine], compatible_printers_condition: '' });
+    if (/^#[0-9a-f]{6}$/i.test(req.filamentColor || '')) f.filament_colour = [req.filamentColor.toUpperCase()];
+    const filamentFile = path.join(dir, 'filament.json');
+    fs.writeFileSync(filamentFile, JSON.stringify(f));
 
     const args = ['--slice', '0', '--arrange', '1', '--ensure-on-bed', '--debug', '1',
       '--load-settings', `${machineFile};${processFile}`, '--load-filaments', filamentFile, '--outputdir', dir];
@@ -123,7 +159,7 @@ class SlicerService {
     args.push(modelPath);
 
     const t0 = Date.now();
-    const r = await runProcess(this.slicer.exe, args);
+    const r = await runProcess(eng.slicer.exe, args);
     const produced = fs.readdirSync(dir).filter((n) => n.endsWith('.gcode')).sort();
     const gname = produced.includes('plate_1.gcode') ? 'plate_1.gcode' : produced[0];
     if (r.code !== 0 || !gname) throw new Error(explain(r.out, r.code));
@@ -140,7 +176,7 @@ class SlicerService {
     fs.writeFileSync(out, text);
     if (out !== gfile) fs.rmSync(gfile, { force: true });
 
-    const job = { id, path: out, name, bytes: Buffer.byteLength(text), stats, plates: produced.length, machine, process: proc, filament, ms: Date.now() - t0 };
+    const job = { id, path: out, name, bytes: Buffer.byteLength(text), stats, plates: produced.length, machine, process: proc, filament, engine: eng.slicer.name, ms: Date.now() - t0 };
     this.jobs.set(id, job);
     return job;
   }

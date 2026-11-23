@@ -257,6 +257,10 @@ select.input { padding: 8px 10px; cursor: pointer; }
 .banner span { color: var(--text-2); font-size: 13px; }
 .banner .r { margin-left: auto; display: flex; gap: 8px; flex: none; }
 #dropOverlay .drop-sub { font-size: 12px; max-width: 360px; }
+.fail-box { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--c-err) 10%, transparent); border: 1px solid color-mix(in srgb, var(--c-err) 35%, transparent); max-width: 560px; }
+.fail-box > svg { color: var(--c-err); font-size: 18px; margin-top: 1px; }
+.fail-box b { display: block; color: var(--text); }
+.fail-box span { color: var(--text-2); font-size: 13px; }
 
 /* bırakma katmanı, bildirim */
 #dropOverlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(6px); display: none; place-items: center; z-index: 20; pointer-events: none; }

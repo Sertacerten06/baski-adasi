@@ -42,8 +42,9 @@ function parseStats(text) {
   const mm = pick(/; filament used \[mm\] = ([\d.]+)/, tail);
   const layers = pick(/; total layer number: (\d+)/, head) || pick(/; total layers count = (\d+)/, tail);
   const height = pick(/; max_z_height: ([\d.]+)/, head);
-  const bed = pick(/^M140 S(\d+)/m, text.slice(0, 200000));
-  const nozzle = pick(/^M104 S(\d+)/m, text.slice(0, 200000));
+  // Asıl baskı sıcaklıkları dosyanın sonundaki ayar bloğundan; ilk M104 çoğu zaman ön ısıtma (ör. 140°C) olur
+  const bed = pick(/^M1[49]0 S([1-9]\d*)/m, text.slice(0, 300000));
+  const nozzle = pick(/; nozzle_temperature = (\d+)/, tail) || pick(/^M10[49] S([1-9]\d*)/m, text.slice(0, 300000));
   return {
     seconds: time ? parseDuration(time) : null,
     grams: grams ? Number(grams) : null,

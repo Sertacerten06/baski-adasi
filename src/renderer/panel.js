@@ -163,6 +163,7 @@ function jobHTML(p) {
   }
   return `<div class="idle-state"><div class="idle-ico" style="color:${color};background:color-mix(in srgb, ${color} 14%, transparent)">${ico}</div>
     <div><h3>${title}</h3><p>${text}</p>
+    ${p.lastFailure && ['idle', 'error'].includes(p.status) ? `<div class="fail-box">${ICONS.alert}<div><b>Son baskı başlatılamadı</b><span>${esc(p.lastFailure.text)}</span></div></div>` : ''}
     ${p.status !== 'offline' && p.status !== 'connecting' ? `<div class="idle-chips">
       ${p.temps.nozzle ? `<span class="chip"><i style="background:var(--nozzle)"></i>Nozul ${fmtT(p.temps.nozzle.cur)}</span>` : ''}
       ${p.temps.bed ? `<span class="chip"><i style="background:var(--bed)"></i>Tabla ${fmtT(p.temps.bed.cur)}</span>` : ''}
@@ -183,7 +184,7 @@ function renderPrinter() {
   setK('fw', esc(p.firmware || '—'));
 
   // baskı kartı
-  const jk = `${p.status}|${p.statusText}|${!!p.job}|${p.error}|${heating(p)}|${p.cancelled}|${p.job ? p.job.file : ''}`;
+  const jk = `${p.status}|${p.statusText}|${!!p.job}|${p.error}|${heating(p)}|${p.cancelled}|${p.job ? p.job.file : ''}|${p.lastFailure ? p.lastFailure.at : ''}`;
   if (jk !== jobKey) { $('#jobCard').innerHTML = jobHTML(p); jobKey = jk; }
   if (p.job && ['printing', 'paused', 'busy'].includes(p.status)) {
     const j = p.job;

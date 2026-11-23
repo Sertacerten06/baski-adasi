@@ -37,4 +37,19 @@ function locate(customExe) {
   return null;
 }
 
-module.exports = { locate };
+// Kurulu bütün dilimleyiciler (tür başına ilk bulunan): { orca, anycubic }
+function locateAll(customExe) {
+  const found = {};
+  const list = candidates();
+  if (customExe) {
+    const c = locate(customExe);
+    if (c) found[c.kind] = c;
+  }
+  for (const c of list) {
+    if (found[c.kind]) continue;
+    if (fs.existsSync(c.exe) && c.resources && fs.existsSync(path.join(c.resources, 'profiles'))) found[c.kind] = c;
+  }
+  return found;
+}
+
+module.exports = { locate, locateAll };

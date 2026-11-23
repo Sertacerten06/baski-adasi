@@ -49,6 +49,43 @@ const UPLOAD_ERRORS = {
   19009: 'Dosya yazıcıya kaydedilemedi', 19010: 'Yazıcıda yer kalmadı', 19011: 'Yazıcı 3MF dosyasını reddetti',
 };
 
+// Yazıcının baskıyı durdurma nedenleri (Anycubic wiki başlıklarından; anycubic_ha_local'in listesi)
+const ERROR_TEXT = {
+  11504: 'Kafada yazıcının tanımadığı bir filament var. Yazıcı ekranından filamenti geri çek (Unload / Boşalt), sonra tekrar dene; ya da baskıyı "Harici makara" ile başlat.',
+  11518: 'Filament sıkıştı.',
+  11519: 'Filament dolaştı.',
+  11520: 'ACE filament sorunu.',
+  11511: 'Ekstrüzyon sorunu (filament itilemiyor).',
+  11512: 'Filament geri çekilemedi.',
+  11513: 'ACE Pro yanıt vermiyor.',
+  11509: 'ACE Pro yanıt vermiyor (zaman aşımı).',
+  11503: 'ACE Pro bağlantı sorunu.',
+  11524: 'ACE Pro bağlantı sorunu.',
+  11521: 'ACE Pro motor sorunu.',
+  11531: 'Modelde 8\'den fazla renk var.',
+  11532: 'Yazıcıda otomatik seviyeleme yok.',
+  11801: 'Spagetti algılandı, baskı duraklatıldı.',
+  11900: 'Nozul çapı dosyayla uyuşmuyor.',
+  10107: 'Filament koptu.',
+  10402: 'Filament koptu ya da bitti; yeni filament yükle.',
+  10113: 'Dosyanın MD5 kontrolü başarısız.',
+  10115: 'Yazıcı dosyayı okuyamadı.',
+  10116: 'Dilimlenmiş dosya hatalı.',
+  10133: 'Dosyada gerekli komutlar eksik.',
+  10106: 'Yazıcıda yer yok, görev iptal edildi.',
+  10118: 'X ekseni sıfırlanamadı.',
+  10119: 'Y ekseni sıfırlanamadı.',
+  10120: 'Z ekseni sıfırlanamadı.',
+  10130: 'Z ekseni sıfırlanamadı, Z sensörünü kontrol et.',
+  10121: 'Tabla ısıtmada sorun.',
+  10122: 'Nozul ısıtmada sorun.',
+  10123: 'Tabla sıcaklık sensörü sorunu.',
+  10124: 'Nozul sıcaklık sensörü sorunu.',
+  10408: 'Baskı kafası ya da anakart yazılımı çok eski.',
+};
+const USER_REASONS = new Set([10401, 10601]); // kullanıcı duraklattı / durdurdu
+const errorText = (code, msg) => `${ERROR_TEXT[code] || (msg ? `Yazıcı hatası: ${msg}` : 'Yazıcı bir hata bildirdi.')} (kod ${code})`;
+
 const BUSY_TEXT = {
   preheating: 'Ön ısıtma', auto_leveling: 'Seviyeleme', checking: 'Kontrol ediliyor', downloading: 'Hazırlanıyor',
   stopping: 'Durduruluyor', stoped: 'Durduruldu', resuming: 'Devam ediyor', pausing: 'Duraklatılıyor',
@@ -209,6 +246,10 @@ class AnycubicDriver extends BaseDriver {
         break;
       }
       case 'print':
+        // Başarısızlık nedeni: rapor zarfındaki kod (200 dışı, kullanıcı kaynaklı değilse)
+        if (msg.code && msg.code !== 200 && !USER_REASONS.has(msg.code) && (msg.state === 'failed' || msg.action === 'start')) {
+          this.failure = { code: msg.code, text: errorText(msg.code, msg.msg), at: Date.now() };
+        }
         if ((msg.state && BUSY_TEXT[msg.state] !== undefined) || ['paused', 'printing', 'finished', 'failed'].includes(msg.state)) { r.phase = msg.state; r.phaseAt = Date.now(); }
         if (d) {
           this._mergeProject(d);
@@ -267,8 +308,13 @@ class AnycubicDriver extends BaseDriver {
     }
     const box = Array.isArray(r.ace) && r.ace[0];
     const light = (r.lights || []).find((l) => l.type === 1);
+    // son başarısızlık 15 dakika boyunca panelde gösterilir; yeni bir iş başlayınca (boştan meşgule geçiş) silinir
+    const newJob = ['idle', 'finished'].includes(this.state.status) && ['busy', 'printing'].includes(status);
+    if (this.failure && (newJob || status === 'printing' || Date.now() - this.failure.at > 15 * 60 * 1000)) this.failure = null;
     this.set({
       status, statusText, job,
+      error: status === 'error' ? (this.failure ? this.failure.text : 'Baskı başarısız oldu') : null,
+      lastFailure: this.failure ? { code: this.failure.code, text: this.failure.text, at: this.failure.at } : null,
       firmware: p.version || this.state.firmware,
       temps: {
         nozzle: t.curr_nozzle_temp !== undefined ? { cur: t.curr_nozzle_temp, target: t.target_nozzle_temp || 0 } : null,
@@ -359,9 +405,9 @@ class AnycubicDriver extends BaseDriver {
     // Başlatma tek sefer gönderilir: reddedilen bir başlatmayı tekrarlamak yazıcıdaki görev kaydını bozabiliyor.
     const answer = await this._sendAndWait('print', 'start', data, (m) => m.type === 'print' && m.action === 'start', 12000);
     if (answer) {
-      if (answer.code === 200) return { name: stored, started: true };
+      if (answer.code === 200 && answer.state !== 'failed') return { name: stored, started: true };
       if (answer.code === 10101) throw new Error('Yazıcı meşgul: önceki görev hâlâ açık görünüyor. Dosya yüklendi ama baskı başlamadı.');
-      throw new Error(`Yazıcı baskıyı başlatmadı (kod ${answer.code}${answer.msg ? `: ${answer.msg}` : ''}). Dosya yüklendi.`);
+      throw new Error(`Baskı başlatılamadı: ${errorText(answer.code, answer.msg)} Dosya yazıcıya yüklendi.`);
     }
     // Cevap gelmediyse 20 sn boyunca görevin görünmesini bekle
     const until = Date.now() + 20000;
