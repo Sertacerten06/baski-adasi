@@ -12,6 +12,7 @@
     <div class="side-top drag">
       <div class="brand"><img src="../assets/icon.png" alt=""><span>Baskı Adası</span></div>
     </div>
+    <button class="side-new" id="newBtn"></button>
     <div class="side-label">Yazıcılar</div>
     <nav id="plist" class="plist"></nav>
     <button class="side-add" id="addBtn"></button>
@@ -23,9 +24,11 @@
     <div class="content" id="view"></div>
   </section>
 </div>
-<div id="dropOverlay"><div><span id="dropIcon"></span><b>Dosyayı bırak</b><span id="dropTarget"></span></div></div>
+<div id="dropOverlay"><div><span id="dropIcon"></span><b>Dosyayı bırak</b><span id="dropTarget"></span><span class="drop-sub">Model dosyası (STL, 3MF, OBJ, STEP) dilimlenir · G-code doğrudan yazıcıya yüklenir</span></div></div>
 <div id="toast"></div>
 <script src="common.js"></script>
 <script src="panel.js"></script>
+<script src="slice-ui.js"></script>
+<script type="module" src="viewer3d.js"></script>
 </body>
 </html>

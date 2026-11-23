@@ -1,13 +1,16 @@
 {
   "name": "baski-adasi",
   "productName": "Baski Adasi",
-  "version": "1.0.0",
-  "description": "3D yazıcılar için dinamik ada tarzı masaüstü durum uygulaması (Anycubic LAN + Klipper/Moonraker)",
+  "version": "1.1.0",
+  "description": "3D yazÄ±cÄ±lar iÃ§in dinamik ada tarzÄ± masaÃ¼stÃ¼ durum uygulamasÄ± (Anycubic LAN + Klipper/Moonraker)",
   "main": "src/main.js",
   "author": "Arpama",
   "license": "MIT",
   "homepage": "https://github.com/Sertacerten06/baski-adasi",
-  "repository": { "type": "git", "url": "https://github.com/Sertacerten06/baski-adasi.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sertacerten06/baski-adasi.git"
+  },
   "scripts": {
     "start": "electron .",
     "icons": "node scripts/make-icons.js",
@@ -68,6 +71,7 @@
   },
   "devDependencies": {
     "electron": "^45.4.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "three": "^0.169.0"
   }
 }

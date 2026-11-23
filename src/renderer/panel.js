@@ -47,12 +47,16 @@ function renderSidebar() {
       <span class="pt"><div class="pn">${esc(p.name)}</div><div class="ps">${esc(sub)}</div>${bar}</span></button>`;
   }).join('') || `<div class="ps" style="padding:6px 10px;color:var(--muted);font-size:13px">${scanning ? '<span class="spin"></span> Aranıyor…' : 'Henüz yazıcı yok'}</div>`;
   $('#setBtn').classList.toggle('sel', view.type === 'settings');
+  $('#newBtn').classList.toggle('sel', view.type === 'slice');
 }
 $('#plist').addEventListener('click', (e) => { const b = e.target.closest('.pitem'); if (b) go({ type: 'printer', id: b.dataset.id }); });
 $('#addBtn').onclick = () => go({ type: 'settings', focusAdd: true });
 $('#setBtn').onclick = () => go({ type: 'settings' });
+$('#newBtn').innerHTML = `${ICONS.layers}<span>Yeni baskı</span>`;
+$('#newBtn').onclick = () => go({ type: 'slice', from: view.type === 'printer' ? view.id : null });
 
 function go(v) {
+  if (view.type === 'slice' && v.type !== 'slice' && window.Viewer) window.Viewer.unmount();
   view = { ...v };
   if (view.type === 'printer' && !printers.find((p) => p.id === view.id)) view = printers[0] ? { type: 'printer', id: printers[0].id } : { type: 'settings' };
   skeletonKey = null; jobKey = null; filKey = null; filesKey = null;
@@ -68,6 +72,7 @@ function skeleton(p) {
     <div class="ph">
       <div><h1 data-k="name"></h1><div class="ph-sub" data-k="sub"></div></div>
       <div class="ph-right"><span data-k="chip"></span>
+        ${p.caps.sendPrint ? `<button class="btn" data-act="slice">${ICONS.layers}Model yazdır</button>` : ''}
         <button class="btn ghost icon" data-act="refresh" title="Yenile">${ICONS.refresh}</button></div>
     </div>
     <div class="grid">
@@ -257,6 +262,7 @@ function bindPrinterView() {
     const b = e.target.closest('button');
     if (b) {
       const act = b.dataset.act;
+      if (act === 'slice') return openSlice({ printerId: id() });
       if (act === 'refresh') return run(() => api.cmd(id(), 'refresh'), 'Yenilendi');
       if (act === 'pause') return run(() => api.cmd(id(), 'pause'), 'Duraklatma komutu gönderildi');
       if (act === 'resume') return run(() => api.cmd(id(), 'resume'), 'Devam komutu gönderildi');
@@ -306,12 +312,14 @@ async function doUpload(file) {
   if (dz) { dz.classList.remove('busy'); dz.innerHTML = prev; }
 }
 
-// sürükle-bırak (pencerenin her yerine)
+// sürükle-bırak (pencerenin her yerine): model dosyası dilimlemeye, G-code yazıcıya
+const MODEL_RE = /\.(stl|obj|3mf|step|stp|amf)$/i;
+const isModelFile = (name) => MODEL_RE.test(name) && !/\.gcode\.3mf$/i.test(name);
 let dragDepth = 0;
 window.addEventListener('dragenter', (e) => {
-  if (view.type !== 'printer' || !e.dataTransfer.types.includes('Files')) return;
+  if (!e.dataTransfer.types.includes('Files') || view.type === 'settings') return;
   dragDepth++; const p = cur();
-  $('#dropTarget').textContent = p ? `${p.name} yazıcısına yüklenecek` : '';
+  $('#dropTarget').textContent = view.type === 'slice' ? 'Model dilimleme ekranına açılacak' : p ? `G-code ${p.name} yazıcısına yüklenir` : '';
   $('#dropOverlay').classList.add('show');
 });
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#dropOverlay').classList.remove('show'); } });
@@ -319,7 +327,10 @@ window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
   e.preventDefault(); dragDepth = 0; $('#dropOverlay').classList.remove('show');
   const f = e.dataTransfer.files[0];
-  if (f && view.type === 'printer') doUpload(f);
+  if (!f || view.type === 'settings') return;
+  if (isModelFile(f.name)) { openSlice({ printerId: view.type === 'printer' ? view.id : null, file: f }); return; }
+  if (view.type === 'printer') doUpload(f);
+  else toast('Dilimleme ekranına STL, 3MF, OBJ ya da STEP bırakabilirsin', true);
 });
 
 // sıcaklık grafiği
@@ -482,6 +493,7 @@ async function doAdd() {
 function render() {
   renderSidebar();
   if (view.type === 'settings') renderSettings();
+  else if (view.type === 'slice') renderSlice();
   else if (!cur()) {
     if (printers.length) { view = { type: 'printer', id: printers[0].id }; renderPrinter(); } else renderSettings();
   } else renderPrinter();
@@ -495,7 +507,10 @@ api.onScan((s) => {
   renderSidebar();
   if (view.type === 'settings') renderSettingsDynamic();
 });
-api.onNavigate((nav) => go(nav.view === 'settings' ? { type: 'settings' } : { type: 'printer', id: nav.id || view.id }));
+api.onNavigate((nav) => {
+  if (nav.view === 'slice') return openSlice({ printerId: nav.id || null });
+  go(nav.view === 'settings' ? { type: 'settings' } : { type: 'printer', id: nav.id || view.id });
+});
 api.onEvent((e) => { if (e.type === 'finished') toast(`${e.name}: baskı bitti`); });
 
 (async () => {

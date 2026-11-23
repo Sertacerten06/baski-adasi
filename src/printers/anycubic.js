@@ -62,7 +62,10 @@ class AnycubicDriver extends BaseDriver {
     this.timers = [];
     this.client = null;
     this.hs = null;
-    this.state.caps = { light: true, speedMode: true, fan: true, upload: true, startPrint: false };
+    this.waiters = [];   // belirli bir raporu bekleyen istekler (ör. baskı başlatma cevabı)
+    // startPrint: yazıcıdaki mevcut dosyayı başlatma (ACE eşlemesi bilinmediği için kapalı)
+    // sendPrint: uygulamada dilimlenen dosyayı yükleyip başlatma
+    this.state.caps = { light: true, speedMode: true, fan: true, upload: true, startPrint: false, sendPrint: true };
   }
 
   start() { this.stopped = false; this._connect(); }
@@ -96,7 +99,7 @@ class AnycubicDriver extends BaseDriver {
     }
     if (this.stopped) return;
     this.hs = hs;
-    this.set({ model: (hs.info.modelName || '').replace(/^Anycubic\s+/i, '') || 'Anycubic', uid: hs.info.cn || null });
+    this.set({ model: (hs.info.modelName || '').replace(/^Anycubic\s+/i, '') || 'Anycubic', modelFull: hs.info.modelName || null, uid: hs.info.cn || null });
 
     const client = mqtt.connect({
       protocol: 'mqtts', host: this.cfg.host, port: hs.brokerPort,
@@ -144,10 +147,24 @@ class AnycubicDriver extends BaseDriver {
     this._retry(this.failCount >= 2 ? 8000 : 2000);
   }
 
-  _send(type, action, data = null, channel = 'slicer') {
+  // Komutlar "web" kanalından gider: Home Assistant entegrasyonu (anycubic_ha_local) pause/resume/
+  // stop/update komutlarını bu kanalda gerçek cihazda doğruladı.
+  _send(type, action, data = null, channel = 'web') {
     if (!this.client || !this.hs || !this.state.connected) throw new Error('Yazıcıya bağlı değil');
     const topic = `${PREFIX}/${channel}/printer/${this.hs.modelId}/${this.hs.deviceId}/${type}`;
-    this.client.publish(topic, JSON.stringify({ type, action, timestamp: Date.now(), msgid: crypto.randomUUID(), data }));
+    const msgid = crypto.randomUUID();
+    this.client.publish(topic, JSON.stringify({ type, action, timestamp: Date.now(), msgid, data }));
+    return msgid;
+  }
+
+  // Bir komut gönder ve koşula uyan ilk raporu bekle (zaman aşımında null)
+  _sendAndWait(type, action, data, match, timeout = 12000) {
+    return new Promise((resolve, reject) => {
+      const w = { match, resolve: (m) => { clearTimeout(w.timer); resolve(m); } };
+      w.timer = setTimeout(() => { this.waiters = this.waiters.filter((x) => x !== w); resolve(null); }, timeout);
+      this.waiters.push(w);
+      try { this._send(type, action, data); } catch (e) { clearTimeout(w.timer); this.waiters = this.waiters.filter((x) => x !== w); reject(e); }
+    });
   }
 
   _pollAll() {
@@ -168,6 +185,9 @@ class AnycubicDriver extends BaseDriver {
 
   _onReport(topic, msg) {
     const type = msg.type || topic.split('/').slice(-2, -1)[0];
+    for (const w of [...this.waiters]) {
+      if (w.match({ ...msg, type })) { this.waiters = this.waiters.filter((x) => x !== w); w.resolve({ ...msg, type }); }
+    }
     const d = msg.data;
     const r = this.raw;
     switch (type) {
@@ -302,7 +322,55 @@ class AnycubicDriver extends BaseDriver {
     if (UPLOAD_ERRORS[body.code]) throw new Error(UPLOAD_ERRORS[body.code]);
     if (res.status !== 200 || (body.code !== undefined && ![0, 200].includes(body.code))) throw new Error(`Yükleme reddedildi (HTTP ${res.status})`);
     setTimeout(() => { try { this._send('file', 'listLocal', { path: '/' }); } catch { /* */ } }, 1500);
-    return name;
+    // yazıcı dosyayı başka bir adla sakladıysa (ör. 3MF'nin içinden çıkan plaka) o adı kullan
+    const kept = body && body.data && body.data.gcode;
+    return typeof kept === 'string' && /^[\w ().+-]+\.gcode$/i.test(kept) ? kept : name;
+  }
+
+  // Uygulamada dilimlenen G-code'u yükle ve isteğe bağlı olarak baskıyı başlat.
+  // slot: ACE yuvası (0-3) ya da null/-1 = harici makara.
+  async printFile(filePath, { start = true, slot = null } = {}) {
+    if (!this.state.connected) throw new Error('Yazıcıya bağlı değil');
+    if (start && !['idle', 'finished'].includes(this.state.status)) throw new Error('Yazıcı şu an boşta değil, baskı başlatılamaz');
+    const buf = await fs.promises.readFile(filePath);
+    const stored = await this.upload(filePath);
+    if (!start) return { name: stored, started: false };
+
+    let ams = { use_ams: false, ams_box_mapping: [] };
+    const box = Array.isArray(this.raw.ace) && this.raw.ace[0];
+    if (slot !== null && slot >= 0) {
+      const s = box && (box.slots || []).find((x) => x.index === slot);
+      if (!s) throw new Error('Seçilen ACE yuvası bulunamadı');
+      const rgba = [...(s.color || [255, 255, 255]).slice(0, 3), 255];
+      ams = { use_ams: true, ams_box_mapping: [{ paint_index: 0, ams_index: slot, paint_color: rgba, ams_color: rgba, material_type: s.type || 'PLA' }] };
+    }
+    // Biçim anycubic_ha_local'in build_print_start'ıyla aynı. Görev numarası her başlatmada yeni.
+    // Otomatik seviyeleme kapalı: açıkken yazıcının tabla ön ısıtmasında takılı kaldığı görülmüş.
+    const data = {
+      taskid: String(100000000 + crypto.randomInt(900000000)),
+      filename: stored,
+      filepath: '/',
+      filetype: 1,
+      filesize: buf.length,
+      md5: crypto.createHash('md5').update(buf).digest('hex'),
+      ams_settings: ams,
+      task_settings: { auto_leveling: 0, vibration_compensation: 0, flow_calibration: 0, timelapse: { status: 0 }, ai_settings: { status: 0 }, dry_mode: 0 },
+    };
+    // Başlatma tek sefer gönderilir: reddedilen bir başlatmayı tekrarlamak yazıcıdaki görev kaydını bozabiliyor.
+    const answer = await this._sendAndWait('print', 'start', data, (m) => m.type === 'print' && m.action === 'start', 12000);
+    if (answer) {
+      if (answer.code === 200) return { name: stored, started: true };
+      if (answer.code === 10101) throw new Error('Yazıcı meşgul: önceki görev hâlâ açık görünüyor. Dosya yüklendi ama baskı başlamadı.');
+      throw new Error(`Yazıcı baskıyı başlatmadı (kod ${answer.code}${answer.msg ? `: ${answer.msg}` : ''}). Dosya yüklendi.`);
+    }
+    // Cevap gelmediyse 20 sn boyunca görevin görünmesini bekle
+    const until = Date.now() + 20000;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try { this._send('info', 'query', null, 'web'); } catch { /* */ }
+      if (['printing', 'busy', 'paused'].includes(this.state.status)) return { name: stored, started: true };
+    }
+    throw new Error('Yazıcı başlatma komutuna yanıt vermedi. Dosya yüklendi; baskıyı yazıcının ekranından başlatabilirsin.');
   }
 }
 

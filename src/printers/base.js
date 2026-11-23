@@ -28,7 +28,8 @@ class BaseDriver extends EventEmitter {
       filaments: null,      // [{ index, color:'#rrggbb', type, active }]
       filamentBox: null,    // { temp, humidity, drying }
       files: null,          // [{ name, size, date }]
-      caps: { light: false, speedMode: false, fan: false, upload: false, startPrint: false },
+      caps: { light: false, speedMode: false, fan: false, upload: false, startPrint: false, sendPrint: false },
+      modelFull: null,      // üreticinin tam model adı (ör. "Anycubic Kobra 3"), dilimleyici profili seçmek için
       cancelled: false,
     };
   }
@@ -42,6 +43,7 @@ class BaseDriver extends EventEmitter {
   stop() { this.stopped = true; }
   async command() { throw new Error('Desteklenmiyor'); }
   async upload() { throw new Error('Bu yazıcıya dosya yüklenemiyor'); }
+  async printFile() { throw new Error('Bu yazıcıya baskı gönderilemiyor'); }
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v))));

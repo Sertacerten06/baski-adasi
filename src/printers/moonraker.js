@@ -27,7 +27,7 @@ class MoonrakerDriver extends BaseDriver {
     this.meta = null;       // o anki dosyanın metadata'sı
     this.metaFile = null;
     this.lightObj = null;
-    this.state.caps = { light: false, speedMode: false, fan: true, upload: true, startPrint: true };
+    this.state.caps = { light: false, speedMode: false, fan: true, upload: true, startPrint: true, sendPrint: true };
   }
 
   get base() { return `http://${this.cfg.host}:${this.port}`; }
@@ -242,7 +242,19 @@ class MoonrakerDriver extends BaseDriver {
     } catch (e) { throw new Error(netError(e) || e.message); }
     if (res.status < 200 || res.status >= 300) throw new Error(`Yükleme reddedildi (HTTP ${res.status})`);
     this._refreshFiles();
-    return name;
+    let stored = name;
+    try { const j = JSON.parse(res.text); if (j.result && j.result.item && j.result.item.path) stored = j.result.item.path; } catch { /* */ }
+    return stored;
+  }
+
+  // Uygulamada dilimlenen G-code'u yükle ve isteğe bağlı olarak başlat
+  async printFile(filePath, { start = true } = {}) {
+    if (!this.state.connected) throw new Error('Yazıcıya bağlı değil');
+    if (start && !['idle', 'finished'].includes(this.state.status)) throw new Error('Yazıcı şu an boşta değil, baskı başlatılamaz');
+    const name = await this.upload(filePath);
+    if (!start) return { name, started: false };
+    await this.call('printer.print.start', { filename: name }, 30000);
+    return { name, started: true };
   }
 }
 

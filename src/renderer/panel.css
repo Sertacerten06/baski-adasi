@@ -213,6 +213,51 @@ canvas#chart { width: 100%; height: 130px; display: block; }
 .help { color: var(--text-2); font-size: 13px; line-height: 1.6; }
 .help b { color: var(--text); }
 
+/* yeni baskı */
+.side-new { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; padding: 10px 12px; border-radius: 12px; border: 0; background: var(--accent); color: #fff; font-weight: 650; cursor: pointer; width: 100%; text-align: left; }
+.side-new svg { font-size: 17px; }
+.side-new:hover { filter: brightness(1.08); }
+.side-new.sel { box-shadow: 0 0 0 3px var(--accent-2); }
+.viewer-card { display: flex; flex-direction: column; align-self: start; position: sticky; top: 8px; }
+.viewer { position: relative; height: min(540px, calc(100vh - 230px)); min-height: 360px; border-radius: 12px; overflow: hidden; background: radial-gradient(120% 90% at 50% 0%, var(--card-2), var(--bg)); }
+.viewer canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.viewer-empty { position: absolute; inset: 14px; border: 1.5px dashed var(--line-2); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); background: color-mix(in srgb, var(--card) 72%, transparent); cursor: pointer; font: inherit; }
+.viewer-empty svg { font-size: 30px; color: var(--accent); }
+.viewer-empty b { color: var(--text); font-size: 15px; }
+.viewer-empty:hover { border-color: var(--accent); }
+.viewer-hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--muted); pointer-events: none; }
+.muted-sm { color: var(--muted); font-size: 12px; max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.muted-sm b { color: var(--text-2); }
+.sl-warn div { display: flex; gap: 8px; align-items: center; color: var(--c-pause); font-size: 13px; margin-top: 10px; }
+.fl { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.fl > span { color: var(--text-2); font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; }
+.fl .input { width: 100%; }
+select.input { padding: 8px 10px; cursor: pointer; }
+.fl-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; color: var(--text-2); font-weight: 600; font-size: 13px; }
+.fl-machine { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: -6px 0 14px; }
+.link { background: none; border: 0; color: var(--accent); cursor: pointer; font-weight: 600; padding: 0; font-size: 12px; }
+.slots-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card-2); cursor: pointer; font-weight: 600; font-size: 13px; }
+.slot-chip i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+.slot-chip i.ext { background: conic-gradient(#8a909c 0 25%, #c9ced8 0 50%, #8a909c 0 75%, #c9ced8 0); }
+.slot-chip small { color: var(--muted); font-weight: 600; }
+.slot-chip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: var(--accent-2); }
+.scale-in { display: inline-flex; align-items: center; gap: 6px; }
+.scale-in .input { width: 90px; }
+.btn.wide { width: 100%; padding: 11px; margin-top: 4px; font-size: 15px; }
+.spin.light { border-color: rgba(255,255,255,.35); border-top-color: #fff; }
+.sl-result { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.sl-result.stale .sl-res-top, .sl-result.stale > .note { opacity: .45; }
+.sl-res-top { display: flex; gap: 14px; align-items: center; }
+.sl-res-top img { width: 112px; height: 84px; object-fit: contain; border-radius: 10px; background: var(--card-2); flex: none; }
+.sl-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; min-width: 0; }
+.banner { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; border-color: color-mix(in srgb, var(--c-pause) 45%, var(--line)); }
+.banner > svg { font-size: 22px; color: var(--c-pause); }
+.banner b { display: block; }
+.banner span { color: var(--text-2); font-size: 13px; }
+.banner .r { margin-left: auto; display: flex; gap: 8px; flex: none; }
+#dropOverlay .drop-sub { font-size: 12px; max-width: 360px; }
+
 /* bırakma katmanı, bildirim */
 #dropOverlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(6px); display: none; place-items: center; z-index: 20; pointer-events: none; }
 #dropOverlay.show { display: grid; }

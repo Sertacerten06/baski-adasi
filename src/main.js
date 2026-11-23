@@ -1,10 +1,11 @@
 // Baskı Adası — ana süreç: tepsi simgesi, dinamik ada penceresi, panel penceresi, yazıcı yöneticisi
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, Notification, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, nativeImage, nativeTheme, Notification, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { PrinterManager } = require('./printers/manager');
 const { discover, probeHost } = require('./printers/discovery');
+const { SlicerService } = require('./slicer');
 
 const IS_MAC = process.platform === 'darwin';
 const ASSETS = path.join(__dirname, 'assets');
@@ -280,6 +281,55 @@ ipcMain.handle('upload', wrap(async (id, filePath) => {
   return d.upload(p);
 }));
 ipcMain.on('panel:open', (_e, nav) => openPanel(nav));
+
+// ---------- dilimleme ve baskı gönderme ----------
+let slicerSvc = null;
+const slicer = () => slicerSvc || (slicerSvc = new SlicerService({
+  workRoot: path.join(app.getPath('temp'), 'baski-adasi-dilim'),
+  getCustomExe: () => config.slicerExe || null,
+}));
+const printerCfg = (id) => config.printers.find((p) => p.id === id);
+
+ipcMain.handle('slicer:info', wrap(() => slicer().info()));
+ipcMain.handle('slicer:refresh', wrap(() => slicer().refresh()));
+ipcMain.handle('slicer:catalog', wrap(() => slicer().catalog()));
+ipcMain.handle('slicer:options', wrap((printerId) => {
+  const svc = slicer();
+  const machine = svc.machineFor(manager.get(printerId).state, printerCfg(printerId));
+  return machine ? svc.options(machine) : { machine: null };
+}));
+ipcMain.handle('slicer:setMachine', wrap((printerId, machine) => {
+  const p = printerCfg(printerId);
+  if (!p) throw new Error('Yazıcı bulunamadı');
+  if (machine) p.slicerMachine = String(machine); else delete p.slicerMachine;
+  saveConfig(); broadcast('config', publicConfig());
+  return true;
+}));
+ipcMain.handle('model:open', wrap(async (filePath) => {
+  let p = filePath;
+  if (!p) {
+    const r = await dialog.showOpenDialog(panel || undefined, {
+      title: 'Yazdırılacak model',
+      filters: [{ name: '3B model', extensions: ['stl', '3mf', 'obj', 'step', 'stp', 'amf'] }],
+      properties: ['openFile'],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    p = r.filePaths[0];
+  }
+  return slicer().loadModel(p);
+}));
+ipcMain.handle('slice:run', wrap(async (req) => {
+  const job = await slicer().slice(req);
+  // son seçimleri yazıcı başına hatırla
+  const p = req.printerId && printerCfg(req.printerId);
+  if (p && req.prefs) { p.slicePrefs = req.prefs; saveConfig(); }
+  return job;
+}));
+ipcMain.handle('print:send', wrap(async ({ jobId, printerId, start, slot }) => {
+  const job = slicer().job(jobId);
+  return manager.get(printerId).printFile(job.path, { start: !!start, slot: slot === undefined ? null : slot });
+}));
+ipcMain.on('open:orca', () => shell.openExternal('https://github.com/SoftFever/OrcaSlicer/releases/latest'));
 ipcMain.on('island:mouse', (_e, inside) => {
   if (!island) return;
   island.setIgnoreMouseEvents(!inside, { forward: true });

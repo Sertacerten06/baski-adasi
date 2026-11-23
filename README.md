@@ -1,6 +1,6 @@
 # Baskı Adası
 
-3D yazıcıların için masaüstü durum uygulaması. Ekranın üstünde iPhone'daki "dinamik ada" gibi küçük bir kapsül durur. Baskının yüzdesini ve kalan süresini oradan görürsün. Üzerine gelince açılır; sıcaklıklar, katman, bitiş saati ve filament renkleri görünür. Tam panelden yazıcıyı kontrol edebilir, dosya yükleyebilirsin.
+3D yazıcıların için masaüstü durum uygulaması. Ekranın üstünde iPhone'daki "dinamik ada" gibi küçük bir kapsül durur. Baskının yüzdesini ve kalan süresini oradan görürsün. Üzerine gelince açılır; sıcaklıklar, katman, bitiş saati ve filament renkleri görünür. Tam panelden yazıcıyı kontrol edebilir, dosya yükleyebilirsin. Küçük baskılar için ayrı bir dilimleyici açmana da gerek yok: modeli (STL, 3MF, OBJ, STEP) uygulamaya sürükle, dilimle ve tek tıkla yazıcıya gönder.
 
 Her şey evindeki ağda olur. Bulut hesabı, üyelik ya da internet gerekmez; uygulama yazıcıyla doğrudan konuşur.
 
@@ -51,6 +51,12 @@ Anycubic'te LAN modu açıkken yazıcı Anycubic bulut uygulamasından çıkar; 
   - fan ve hız modu
   - dosya listesi; dosyayı pencereye sürükleyip bırakarak yüklersin
   - Klipper yazıcılarda listeden baskı başlatma
+- **Yeni baskı (dilimle ve yazdır):** Kenar çubuğundaki **Yeni baskı**'ya bas ya da model dosyasını pencereye sürükle.
+  - Dilimleme için bilgisayarında ücretsiz **[OrcaSlicer](https://github.com/SoftFever/OrcaSlicer/releases/latest)** ya da **Anycubic Slicer Next** kurulu olmalı. Uygulama onun komut satırı modunu ve hazır yazıcı profillerini kullanır; dilimleyicinin penceresi açılmaz.
+  - Yazıcının profili kendiliğinden seçilir (ör. Kobra 3 için "Anycubic Kobra 3 0.4 nozzle"). Klipper yazıcılarda model otomatik bulunamazsa listeden bir kez seçersin, uygulama hatırlar.
+  - Kalite, filament, tabla tipi, dolgu, destek, kenar (brim) ve ölçek ayarlanabilir. Kobra'da filamenti ACE yuvasından seçersin; 3B önizleme seçilen yuvanın rengiyle çizilir.
+  - **Dilimle**'den sonra süre, gram, katman ve bitiş saati görünür. **Gönder ve başlat** dosyayı yükler ve baskıyı başlatır; başlatmadan önce tablanın boş olduğunu sorar. **Sadece yükle** dosyayı yazıcıya koyar, baskıyı sen başlatırsın.
+  - Dosyaya yazıcı ekranında görünen küçük bir resim de eklenir.
 - **Bildirimler:** Baskı bitince, duraklayınca ya da hata verince sistem bildirimi gelir. Windows'ta bildirimler sadece kurulumlu sürümde çıkar.
 - **Arka planda çalışma:** Panel penceresini kapatınca uygulama tepside çalışmaya devam eder. Tamamen kapatmak için tepsi menüsünden **Çıkış**'ı seç. **Bilgisayar açılınca başlat** seçeneği de aynı menüde.
 
@@ -62,6 +68,8 @@ Anycubic'te LAN modu açıkken yazıcı Anycubic bulut uygulamasından çıkar; 
   - Olmazsa IP'yi elle gir.
 - **Ağ taraması neden yaklaşık 1 dakika sürüyor?** Hızlı tarama bazı yazıcıların (Kobra 3 gibi) Wi-Fi'sini birkaç saniye tıkayabiliyor. Bu yüzden tarama bilerek yavaş. Otomatik tarama 30 dakikada bir çalışır, ulaşılamayan bir yazıcı varsa 15 dakikada bir. IP'si değişen yazıcıyı da bulur.
 - **"Çevrimdışı" görünüyor:** Uygulama birkaç saniyede bir yeniden bağlanmayı dener. Yazıcı uyku modundaysa ya da Wi-Fi'si zayıfsa kısa kopmalar normal.
+- **"Dilimleyici bulunamadı":** OrcaSlicer'ı varsayılan konumuna kur (Windows'ta `Program Files`, Mac'te `Uygulamalar`), sonra **Yeniden ara**'ya bas.
+- **Model tablaya sığmıyor:** Ölçeği küçült. 3MF proje dosyalarında birden fazla tabla varsa yalnızca ilki dilimlenir.
 
 ## Geliştirme
 
@@ -92,7 +100,7 @@ GitHub Actions ([`.github/workflows/derle.yml`](.github/workflows/derle.yml)) Wi
 
 ## Teşekkürler
 
-Anycubic LAN protokolü şu açık kaynak projelerden öğrenildi: [kobra-connect](https://github.com/rvanderp3/kobra-connect), [anycubic_ha_local](https://github.com/chrisfore/anycubic_ha_local). Klipper tarafı [Moonraker API](https://moonraker.readthedocs.io/)'sini kullanıyor.
+Anycubic LAN protokolü şu açık kaynak projelerden öğrenildi: [kobra-connect](https://github.com/rvanderp3/kobra-connect), [anycubic_ha_local](https://github.com/chrisfore/anycubic_ha_local). Klipper tarafı [Moonraker API](https://moonraker.readthedocs.io/)'sini kullanıyor. Dilimleme kullanıcının bilgisayarındaki [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer)'la yapılır (uygulamanın içinde gelmez). 3B önizleme [three.js](https://threejs.org) ile çiziliyor (MIT).
 
 Anycubic ve Artillery ile bir bağlantısı olmayan, bağımsız bir projedir.
 
