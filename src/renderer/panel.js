@@ -21,6 +21,22 @@ let filKey = null;
 let filesKey = null;
 let uploading = false;
 const RING = 172; // baskı halkasının çapı (px)
+let aceEdit = null; // { index, type, color } — ACE yuvası düzenleyicisinin taslağı
+
+const ACE_TYPES = ['PLA', 'PLA+', 'PLA Matte', 'PLA Silk', 'PLA High Speed', 'PLA-CF', 'PETG', 'PETG-CF', 'ABS', 'ASA', 'TPU', 'PA', 'PC', 'PVA', 'HIPS'];
+const ACE_COLORS = ['#FFFFFF', '#161616', '#8E9089', '#C0C0C0', '#E3261F', '#FF6A14', '#FFEC3D', '#A3D82B', '#00AE42', '#009FA1',
+  '#00B1F4', '#0B5FFF', '#1F3A93', '#8E44AD', '#F55A9E', '#EC008C', '#7B4A2A', '#E8D5B5', '#C9A54C', '#F5C9A5'];
+function aceEditorHTML() {
+  const e = aceEdit;
+  const types = ACE_TYPES.includes(e.type) ? ACE_TYPES : [e.type, ...ACE_TYPES];
+  return `<div class="ace-edit">
+    <div class="ace-edit-h"><b>Yuva ${e.index + 1}</b><span class="muted-sm">ACE'deki makaranın bilgisini günceller</span></div>
+    <label class="fl"><span>Filament türü</span><select class="input" id="aceType">${types.map((t) => `<option ${t === e.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    <div class="fl"><span>Renk</span><div class="swatches">${ACE_COLORS.map((c) => `<button class="sw ${c.toLowerCase() === e.color.toLowerCase() ? 'on' : ''}" data-swatch="${c}" style="background:${c}" title="${c}"></button>`).join('')}
+      <label class="sw custom" title="Özel renk"><input type="color" id="aceColor" value="${e.color}"></label></div></div>
+    <div class="actions"><button class="btn primary" data-ace="save">Kaydet</button><button class="btn" data-ace="cancel">Vazgeç</button></div>
+  </div>`;
+}
 
 // ---------- yardımcılar ----------
 function toast(msg, err) {
@@ -59,7 +75,7 @@ function go(v) {
   if (view.type === 'slice' && v.type !== 'slice' && window.Viewer) window.Viewer.unmount();
   view = { ...v };
   if (view.type === 'printer' && !printers.find((p) => p.id === view.id)) view = printers[0] ? { type: 'printer', id: printers[0].id } : { type: 'settings' };
-  skeletonKey = null; jobKey = null; filKey = null; filesKey = null;
+  skeletonKey = null; jobKey = null; filKey = null; filesKey = null; aceEdit = null;
   $('.content').scrollTop = 0;
   render();
   if (v.focusAdd) setTimeout(() => { const i = $('#addInput'); if (i) i.focus(); }, 50);
@@ -208,30 +224,48 @@ function renderPrinter() {
   }
   drawChart(p);
 
-  // kontroller
+  // kontroller (Kobra'da fan ve hız modu yalnızca baskı sırasında değişiyor)
+  const inJob = ['printing', 'paused', 'busy'].includes(p.status);
+  const jobOnly = p.caps.fanIdle === false && !inJob;
   const sw = $view.querySelector('[data-act="light"]');
   if (sw) { sw.classList.toggle('on', !!p.light); sw.disabled = !p.connected || p.light === null; }
-  $view.querySelectorAll('[data-speed]').forEach((b) => { b.classList.toggle('on', Number(b.dataset.speed) === p.speedMode); b.disabled = !p.connected; });
+  $view.querySelectorAll('[data-speed]').forEach((b) => { b.classList.toggle('on', Number(b.dataset.speed) === p.speedMode); b.disabled = !p.connected || jobOnly; });
   const fr = $('#fanRange');
-  if (fr) { if (document.activeElement !== fr) fr.value = p.fan ?? 0; fr.disabled = !p.connected; }
+  if (fr) { if (document.activeElement !== fr) fr.value = p.fan ?? 0; fr.disabled = !p.connected || jobOnly; }
   setK('fanv', p.fan != null ? `%${p.fan}` : '—');
+  setK('jobOnlyNote', jobOnly ? 'Fan ve hız modu baskı sırasında değiştirilebilir.' : '');
   $view.querySelectorAll('[data-settemp],[data-pre]').forEach((b) => { b.disabled = !p.connected; });
+  // Kobra boştayken tabla hedefini uzaktan kabul etmiyor
+  const bedLocked = p.kind === 'anycubic' && !p.caps.idleBedTemp && !inJob;
+  const bedIn = $('#bedIn'); const bedBtn = $view.querySelector('[data-settemp="bed"]');
+  if (bedIn) { bedIn.disabled = bedLocked || !p.connected; bedIn.placeholder = bedLocked ? 'ekrandan' : '°C'; }
+  if (bedBtn) bedBtn.disabled = bedLocked || !p.connected;
+  setK('bedNote', bedLocked ? 'Yazıcı boştayken tabla ekranından ısıtılır; baskı sırasında buradan değişir.' : '');
 
-  // filament
+  // filament (ACE)
   const fb = $('#filBody');
   if (fb) {
-    const fk = JSON.stringify([p.filaments, p.filamentBox]);
+    // düzenleyicideki taslak (renk/tür) anahtara girmez: renk seçici açıkken kart yeniden çizilmesin
+    const fk = JSON.stringify([p.filaments, p.filamentBox, aceEdit && aceEdit.index, p.caps.aceEdit, p.connected]);
     if (fk !== filKey) {
       filKey = fk;
       const box = p.filamentBox || {};
+      const editable = p.caps.aceEdit && p.connected;
       fb.innerHTML = `<div class="fil-meta">
           ${box.temp != null ? `<span class="chip">İç sıcaklık ${box.temp}°</span>` : ''}
           ${box.humidity ? `<span class="chip">Nem %${box.humidity}</span>` : ''}
-          <span class="chip">${box.drying ? `Kurutuyor ${box.drying.target}° · ${fmtMin(box.drying.remainingMin)}` : 'Kurutma kapalı'}</span>
+          <span class="chip">${box.drying ? `Kurutuyor ${box.drying.target}° · ${fmtMin(box.drying.remainingMin)} kaldı` : 'Kurutma kapalı'}</span>
         </div>
-        <div class="spools">${(p.filaments || []).map((f) => `<div class="spool ${f.active ? 'act' : ''}">
+        <div class="spools">${(p.filaments || []).map((f) => `<button class="spool ${f.active ? 'act' : ''} ${aceEdit && aceEdit.index === f.index ? 'editing' : ''}" data-ace-slot="${f.index}" ${editable ? '' : 'disabled'} title="${editable ? 'Türünü ve rengini değiştir' : ''}">
           ${f.active ? '<span class="badge">KAFADA</span>' : ''}
-          <div class="disc" style="background:${f.color}"></div><div class="t">${esc(f.type)}</div><div class="n">Yuva ${f.index + 1}</div></div>`).join('')}</div>`;
+          <div class="disc" style="background:${aceEdit && aceEdit.index === f.index ? aceEdit.color : f.color}"></div><div class="t">${esc(aceEdit && aceEdit.index === f.index ? aceEdit.type : f.type)}</div><div class="n">Yuva ${f.index + 1}</div></button>`).join('')}</div>
+        ${aceEdit ? aceEditorHTML() : (editable ? '<div class="note">Bir makaraya tıklayıp filament türünü ve rengini değiştirebilirsin.</div>' : '')}
+        ${editable && p.kind === 'anycubic' ? `<div class="dry-row">${box.drying
+    ? `<span>${ICONS.drop}Kurutma sürüyor: ${box.drying.target}°, ${fmtMin(box.drying.remainingMin)} kaldı</span><button class="btn sm danger" data-dry="stop">Durdur</button>`
+    : `<span>${ICONS.drop}Kurutma</span>
+       <select class="input sm" id="dryTemp">${[40, 45, 50, 55].map((t) => `<option value="${t}" ${t === 45 ? 'selected' : ''}>${t}°C</option>`).join('')}</select>
+       <select class="input sm" id="dryTime">${[2, 4, 6, 8, 12].map((h) => `<option value="${h * 60}" ${h === 4 ? 'selected' : ''}>${h} saat</option>`).join('')}</select>
+       <button class="btn sm" data-dry="start">Başlat</button>`}</div>` : ''}`;
     }
   }
 
@@ -263,6 +297,27 @@ function bindPrinterView() {
     const b = e.target.closest('button');
     if (b) {
       const act = b.dataset.act;
+      // ACE yuvası düzenleme ve kurutma
+      if (b.dataset.aceSlot !== undefined) {
+        const f = (cur().filaments || []).find((x) => x.index === Number(b.dataset.aceSlot));
+        if (f) { aceEdit = aceEdit && aceEdit.index === f.index ? null : { index: f.index, type: f.type || 'PLA', color: f.color }; filKey = null; renderPrinter(); }
+        return;
+      }
+      if (b.dataset.swatch) {
+        aceEdit.color = b.dataset.swatch;
+        $view.querySelectorAll('.sw').forEach((s) => s.classList.toggle('on', s === b));
+        const disc = $view.querySelector('.spool.editing .disc'); if (disc) disc.style.background = aceEdit.color;
+        return;
+      }
+      if (b.dataset.ace === 'cancel') { aceEdit = null; filKey = null; renderPrinter(); return; }
+      if (b.dataset.ace === 'save') {
+        const e = aceEdit; b.disabled = true;
+        await run(() => api.cmd(id(), 'aceSlot', { index: e.index, type: e.type, color: e.color }), `Yuva ${e.index + 1} güncellendi`);
+        aceEdit = null; filKey = null; renderPrinter();
+        return;
+      }
+      if (b.dataset.dry === 'start') return run(() => api.cmd(id(), 'aceDry', { on: true, temp: Number($('#dryTemp').value), minutes: Number($('#dryTime').value) }), 'Kurutma başlatıldı');
+      if (b.dataset.dry === 'stop') return run(() => api.cmd(id(), 'aceDry', { on: false }), 'Kurutma durduruldu');
       if (act === 'slice') return openSlice({ printerId: id() });
       if (act === 'refresh') return run(() => api.cmd(id(), 'refresh'), 'Yenilendi');
       if (act === 'pause') return run(() => api.cmd(id(), 'pause'), 'Duraklatma komutu gönderildi');
@@ -289,6 +344,11 @@ function bindPrinterView() {
     if (e.target.closest('#dropZone')) doUpload(null);
   };
   $view.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('.temp .input')) e.target.parentElement.querySelector('button').click(); };
+  $view.oninput = (e) => {
+    if (!aceEdit) return;
+    if (e.target.id === 'aceColor') { aceEdit.color = e.target.value; const disc = $view.querySelector('.spool.editing .disc'); if (disc) disc.style.background = aceEdit.color; }
+    if (e.target.id === 'aceType') aceEdit.type = e.target.value;
+  };
   const fr = $('#fanRange');
   if (fr) {
     fr.oninput = () => setK('fanv', `%${fr.value}`);

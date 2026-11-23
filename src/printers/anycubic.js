@@ -311,8 +311,12 @@ class AnycubicDriver extends BaseDriver {
     // son başarısızlık 15 dakika boyunca panelde gösterilir; yeni bir iş başlayınca (boştan meşgule geçiş) silinir
     const newJob = ['idle', 'finished'].includes(this.state.status) && ['busy', 'printing'].includes(status);
     if (this.failure && (newJob || status === 'printing' || Date.now() - this.failure.at > 15 * 60 * 1000)) this.failure = null;
+    const feat = p.features || {};
     this.set({
       status, statusText, job,
+      // baskı öncesi kalibrasyon seçenekleri (yazıcının bildirdiği özellikler)
+      features: { autoLeveling: !!feat.auto_leveling_support, vibration: !!feat.vibration_compensation_support, flow: !!feat.flow_calibration_support },
+      caps: { ...this.state.caps, aceEdit: !!box, idleBedTemp: !!this.bedIdleCommand, fanIdle: false },
       error: status === 'error' ? (this.failure ? this.failure.text : 'Baskı başarısız oldu') : null,
       lastFailure: this.failure ? { code: this.failure.code, text: this.failure.text, at: this.failure.at } : null,
       firmware: p.version || this.state.firmware,
@@ -333,21 +337,69 @@ class AnycubicDriver extends BaseDriver {
     });
   }
 
+  _inJob() { return ['printing', 'paused', 'busy'].includes(this.state.status); }
+
   async command(cmd, value) {
-    const upd = (settings) => this._send('print', 'update', { taskid: '-1', settings });
+    // Baskı sırasında ayarlar print/update ile gider (görev numarası bilinirse onunla).
+    // Yazıcı boştayken print/update yok sayılıyor (gerçek Kobra 3'te denendi).
+    const p = this.raw.project || {};
+    const taskid = String(p.taskid || p.task_id || '-1');
+    const upd = (settings) => this._send('print', 'update', { taskid, settings });
+    const needJob = (what) => { if (!this._inJob()) throw new Error(`${what} yalnızca baskı sırasında değiştirilebilir`); };
+    // Boştayken nozul: tempature/set. Bu komut yalnızca target_nozzle_temp alanını okuyor
+    // (eksikse 0 sayıyor), tabla alanını yok sayıyor; tabla için boşta ayrı yol gerekiyor.
+    const nozzle = (t) => (this._inJob() ? upd({ target_nozzle_temp: t }) : this._send('tempature', 'set', { target_nozzle_temp: t }));
+    const bed = (t) => {
+      if (this._inJob()) return upd({ target_hotbed_temp: t });
+      if (this.bedIdleCommand) return this.bedIdleCommand(t);
+      throw new Error('Kobra yazıcı boştayken tabla sıcaklığını uzaktan kabul etmiyor; tablayı yazıcının ekranından ısıtabilirsin. Baskı sırasında buradan değiştirilebilir.');
+    };
     switch (cmd) {
       case 'pause': return this._send('print', 'pause', { taskid: '-1' });
       case 'resume': return this._send('print', 'resume', { taskid: '-1' });
       case 'stop': return this._send('print', 'stop', { taskid: '-1' });
       case 'setTemp':
-        return value.heater === 'bed' ? upd({ target_hotbed_temp: clamp(value.value, 0, 110) }) : upd({ target_nozzle_temp: clamp(value.value, 0, 300) });
-      case 'preheat': return upd({ target_nozzle_temp: clamp(value.nozzle, 0, 300), target_hotbed_temp: clamp(value.bed, 0, 110) });
-      case 'fan': return upd({ fan_speed_pct: clamp(value, 0, 100) });
-      case 'speed': return upd({ print_speed_mode: clamp(value, 1, 3) });
-      case 'light': return this._send('light', 'control', { type: 1, status: value ? 1 : 0, brightness: value ? 100 : 0 }, 'web');
+        return value.heater === 'bed' ? bed(clamp(value.value, 0, 110)) : nozzle(clamp(value.value, 0, 300));
+      case 'preheat': {
+        nozzle(clamp(value.nozzle, 0, 300));
+        if (this._inJob() || this.bedIdleCommand || clamp(value.bed, 0, 110) === 0) return bed(clamp(value.bed, 0, 110));
+        return { note: 'Nozul ayarlandı; tabla boştayken uzaktan ısıtılamıyor, yazıcının ekranından ısıt.' };
+      }
+      case 'fan': needJob('Fan hızı'); return upd({ fan_speed_pct: clamp(value, 0, 100) });
+      case 'speed': needJob('Hız modu'); return upd({ print_speed_mode: clamp(value, 1, 3) });
+      case 'light': return this._send('light', 'control', { type: 1, status: value ? 1 : 0, brightness: value ? 100 : 0 });
+      case 'aceSlot': return this._setAceSlot(value);
+      case 'aceDry': return this._setAceDry(value);
       case 'refresh': return this._pollAll();
       default: throw new Error('Bu yazıcıda desteklenmiyor');
     }
+  }
+
+  // ACE yuvasının filament türünü/rengini değiştir (multiColorBox/setInfo; gerçek Kobra 3'te doğrulandı)
+  async _setAceSlot({ index, type, color }) {
+    const box = Array.isArray(this.raw.ace) && this.raw.ace[0];
+    if (!box) throw new Error('ACE bulunamadı');
+    const slot = (box.slots || []).find((s) => s.index === Number(index));
+    if (!slot) throw new Error('ACE yuvası bulunamadı');
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(color || ''));
+    const rgb = m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : slot.color.slice(0, 3);
+    const t = String(type || slot.type || 'PLA').replace(/[^A-Za-z0-9+\- ]/g, '').trim().slice(0, 20) || 'PLA';
+    const answer = await this._sendAndWait('multiColorBox', 'setInfo', { multi_color_box: [{ id: box.id || 0, slots: [{ index: slot.index, type: t, color: rgb }] }] },
+      (msg) => msg.type === 'multiColorBox' && msg.action === 'setInfo', 6000);
+    if (answer && answer.code !== 200) throw new Error(`ACE yuvası güncellenemedi (kod ${answer.code}${answer.msg ? `: ${answer.msg}` : ''})`);
+    // cevapta yuvanın yeni hâli geliyor; yine de tam kutuyu tazele
+    setTimeout(() => { try { this._send('multiColorBox', 'getInfo', null); } catch { /* */ } }, 400);
+    return { index: slot.index, type: t, color: rgb };
+  }
+
+  // ACE kurutma (multiColorBox/setDry; biçim anycubic_ha_local'de gerçek cihazda doğrulanmış)
+  async _setAceDry({ on, temp = 45, minutes = 240 }) {
+    const box = Array.isArray(this.raw.ace) && this.raw.ace[0];
+    if (!box) throw new Error('ACE bulunamadı');
+    const drying = on ? { status: 1, target_temp: clamp(temp, 35, 55), duration: clamp(minutes, 30, 24 * 60) } : { status: 0 };
+    this._send('multiColorBox', 'setDry', { multi_color_box: [{ id: box.id || 0, drying_status: drying }] });
+    setTimeout(() => { try { this._send('multiColorBox', 'getInfo', null); } catch { /* */ } }, 800);
+    return drying;
   }
 
   async upload(filePath) {
@@ -375,7 +427,7 @@ class AnycubicDriver extends BaseDriver {
 
   // Uygulamada dilimlenen G-code'u yükle ve isteğe bağlı olarak baskıyı başlat.
   // slot: ACE yuvası (0-3) ya da null/-1 = harici makara.
-  async printFile(filePath, { start = true, slot = null } = {}) {
+  async printFile(filePath, { start = true, slot = null, task = {} } = {}) {
     if (!this.state.connected) throw new Error('Yazıcıya bağlı değil');
     if (start && !['idle', 'finished'].includes(this.state.status)) throw new Error('Yazıcı şu an boşta değil, baskı başlatılamaz');
     const buf = await fs.promises.readFile(filePath);
@@ -391,7 +443,9 @@ class AnycubicDriver extends BaseDriver {
       ams = { use_ams: true, ams_box_mapping: [{ paint_index: 0, ams_index: slot, paint_color: rgba, ams_color: rgba, material_type: s.type || 'PLA' }] };
     }
     // Biçim anycubic_ha_local'in build_print_start'ıyla aynı. Görev numarası her başlatmada yeni.
-    // Otomatik seviyeleme kapalı: açıkken yazıcının tabla ön ısıtmasında takılı kaldığı görülmüş.
+    // Kalibrasyonlar varsayılan kapalı; kullanıcı seçerse ve yazıcı destekliyorsa açılır.
+    const feat = this.state.features || {};
+    const on = (want, supported) => (want && supported ? 1 : 0);
     const data = {
       taskid: String(100000000 + crypto.randomInt(900000000)),
       filename: stored,
@@ -400,7 +454,12 @@ class AnycubicDriver extends BaseDriver {
       filesize: buf.length,
       md5: crypto.createHash('md5').update(buf).digest('hex'),
       ams_settings: ams,
-      task_settings: { auto_leveling: 0, vibration_compensation: 0, flow_calibration: 0, timelapse: { status: 0 }, ai_settings: { status: 0 }, dry_mode: 0 },
+      task_settings: {
+        auto_leveling: on(task.leveling, feat.autoLeveling),
+        vibration_compensation: on(task.vibration, feat.vibration),
+        flow_calibration: on(task.flow, feat.flow),
+        timelapse: { status: 0 }, ai_settings: { status: 0 }, dry_mode: 0,
+      },
     };
     // Başlatma tek sefer gönderilir: reddedilen bir başlatmayı tekrarlamak yazıcıdaki görev kaydını bozabiliyor.
     const answer = await this._sendAndWait('print', 'start', data, (m) => m.type === 'print' && m.action === 'start', 12000);

@@ -32,6 +32,7 @@ class BaseDriver extends EventEmitter {
       modelFull: null,      // üreticinin tam model adı (ör. "Anycubic Kobra 3"), dilimleyici profili seçmek için
       cancelled: false,
       lastFailure: null,    // { code, text, at } son başarısız baskının nedeni (yazıcı bildirdiyse)
+      features: null,       // { autoLeveling, vibration, flow } baskı öncesi kalibrasyon seçenekleri
     };
   }
 
