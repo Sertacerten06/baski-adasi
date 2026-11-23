@@ -267,7 +267,19 @@ class AnycubicDriver extends BaseDriver {
         if (d && d.fan_speed_pct !== undefined) r.fan = d.fan_speed_pct;
         break;
       case 'multiColorBox':
-        if (d && Array.isArray(d.multi_color_box)) r.ace = d.multi_color_box;
+        // Raporlar artımlı olabilir (baskı sırasında çoğu zaman yalnızca değişen yuva gelir):
+        // kutuları id'ye, yuvaları index'e göre öncekilerle birleştir.
+        if (d && Array.isArray(d.multi_color_box)) {
+          const prev = new Map((r.ace || []).map((b) => [b.id, b]));
+          const merged = d.multi_color_box.map((nb) => {
+            const ob = prev.get(nb.id) || {};
+            const slots = new Map((ob.slots || []).map((s) => [s.index, s]));
+            for (const s of nb.slots || []) slots.set(s.index, { ...(slots.get(s.index) || {}), ...s });
+            return { ...ob, ...nb, slots: [...slots.values()].sort((a, b) => a.index - b.index) };
+          });
+          for (const [id, ob] of prev) if (!merged.some((b) => b.id === id)) merged.push(ob);
+          r.ace = merged;
+        }
         break;
       case 'file':
         if (d && Array.isArray(d.records) && msg.action === 'listLocal') r.files = d.records;
@@ -361,9 +373,11 @@ class AnycubicDriver extends BaseDriver {
       case 'setTemp':
         return value.heater === 'bed' ? bed(clamp(value.value, 0, 110)) : nozzle(clamp(value.value, 0, 300));
       case 'preheat': {
+        const b = clamp(value.bed, 0, 110);
         nozzle(clamp(value.nozzle, 0, 300));
-        if (this._inJob() || this.bedIdleCommand || clamp(value.bed, 0, 110) === 0) return bed(clamp(value.bed, 0, 110));
-        return { note: 'Nozul ayarlandı; tabla boştayken uzaktan ısıtılamıyor, yazıcının ekranından ısıt.' };
+        if (this._inJob() || this.bedIdleCommand) return bed(b);
+        // boştayken tabla uzaktan değişmiyor: kapatmada sessiz geç, ısıtmada kullanıcıya söyle
+        return b > 0 ? { note: 'Nozul ısınıyor. Tabla boştayken uzaktan ısıtılamıyor; tablayı yazıcının ekranından ısıt.' } : { note: 'Nozul kapatıldı. Tabla ısınıyorsa yazıcının ekranından kapat.' };
       }
       case 'fan': needJob('Fan hızı'); return upd({ fan_speed_pct: clamp(value, 0, 100) });
       case 'speed': needJob('Hız modu'); return upd({ print_speed_mode: clamp(value, 1, 3) });

@@ -183,11 +183,23 @@ function renderForm() {
       <div class="fl-row"><span>Destek</span><button class="switch ${SL.sel.support ? 'on' : ''}" data-toggle-sl="support"></button></div>
       <div class="fl-row"><span>Kenar (brim)</span><button class="switch ${SL.sel.brim ? 'on' : ''}" data-toggle-sl="brim"></button></div>
       <label class="fl-row"><span>Ölçek</span><span class="scale-in"><input class="input" type="number" id="slScale" min="5" max="1000" step="5" value="${SL.sel.scale}"> %</span></label>
+      ${calibrationFormHTML(p)}
       <button class="btn primary wide" id="slGo" ${!SL.model || SL.slicing ? 'disabled' : ''}>${SL.slicing ? '<span class="spin light"></span>Dilimleniyor…' : `${ICONS.layers}Dilimle`}</button>
       <div id="slResult"></div>`;
   }
   el.innerHTML = printerSel + body;
   renderResult();
+}
+
+// Baskı öncesi kalibrasyon: yazıcı görünümündeki ayarın aynısı (yazıcı başına saklanır)
+function calibrationFormHTML(p) {
+  const f = (p && p.features) || {};
+  const opts = CAL_OPTIONS.filter(([, feat]) => f[feat]);
+  if (!opts.length) return '';
+  const cal = calOf(SL.printerId);
+  return `<div class="fl cal-form"><span>Baskı öncesi kalibrasyon</span>
+    ${opts.map(([key, , title, desc]) => `<div class="cal-row"><div><b>${title}</b><span>${desc}</span></div><button class="switch ${cal[key] ? 'on' : ''}" data-cal-sl="${key}"></button></div>`).join('')}
+  </div>`;
 }
 
 function machinePicker(required) {
@@ -238,6 +250,12 @@ function onFormClick(e) {
     return;
   }
   if (b.dataset.toggleSl) { SL.sel[b.dataset.toggleSl] = !SL.sel[b.dataset.toggleSl]; b.classList.toggle('on'); markStale(); return; }
+  if (b.dataset.calSl) {
+    const next = { ...calOf(SL.printerId), [b.dataset.calSl]: !b.classList.contains('on') };
+    b.classList.toggle('on');
+    run(async () => { const saved = await api.setCalibration(SL.printerId, next); const pc = (config.printers || []).find((x) => x.id === SL.printerId); if (pc) pc.calibration = saved; renderResult(); });
+    return;
+  }
   if (b.dataset.act === 'pickMachine') { SL.pickMachine = true; renderForm(); return; }
   if (b.dataset.act === 'cancelMachine') { SL.pickMachine = false; renderForm(); return; }
   if (b.id === 'slGo') { doSlice(); return; }
@@ -317,6 +335,8 @@ function renderResult() {
   const st = r.stats || {};
   const canStart = p && p.connected && ['idle', 'finished'].includes(p.status);
   const slotText = r.slot === null || r.slot === undefined ? '' : r.slot === -1 ? 'Harici makara' : `ACE yuva ${r.slot + 1}`;
+  const cal = calOf(r.printerId); const feats = (p && p.features) || {};
+  const calText = CAL_OPTIONS.filter(([key, feat]) => cal[key] && feats[feat]).map(([, , title]) => title.toLowerCase()).join(', ');
   el.innerHTML = `<div class="sl-result ${SL.stale ? 'stale' : ''}">
     ${SL.stale ? `<div class="msg">${ICONS.alert} Ayarlar değişti. Göndermeden önce yeniden dilimle.</div>` : ''}
     <div class="sl-res-top">${r.preview ? `<img src="${r.preview}" alt="">` : ''}
@@ -326,7 +346,8 @@ function renderResult() {
         <div class="tile"><div class="k">${ICONS.layers}Katman</div><div class="v">${st.layers ?? '—'}</div></div>
         <div class="tile"><div class="k">${ICONS.flag}Biter</div><div class="v">${st.seconds ? fmtEta(st.seconds / 60) : '—'}</div></div>
       </div></div>
-    <div class="note">${esc(r.name)} · ${fmtSize(r.bytes)}${st.nozzleTemp ? ` · Nozul ${st.nozzleTemp}°` : ''}${st.bedTemp ? ` · Tabla ${st.bedTemp}°` : ''}${slotText ? ` · ${slotText}` : ''}</div>
+    <div class="note">${esc(r.name)} · ${fmtSize(r.bytes)}${st.nozzleTemp ? ` · Nozul ${st.nozzleTemp}°` : ''}${st.bedTemp ? ` · Tabla ${st.bedTemp}°` : ''}${slotText ? ` · ${slotText}` : ''}${r.engine ? ` · ${esc(r.engine)}` : ''}</div>
+    ${calText ? `<div class="note">${ICONS.layers} Başlamadan önce: ${esc(calText)}</div>` : ''}
     <div class="actions">
       <button class="btn primary" id="slSendStart" ${!canStart || SL.stale || SL.sending ? 'disabled' : ''}>${SL.sending ? '<span class="spin light"></span>Gönderiliyor…' : `${ICONS.play}Gönder ve başlat`}</button>
       <button class="btn" id="slSendOnly" ${!p || !p.connected || SL.stale || SL.sending ? 'disabled' : ''}>${ICONS.upload}Sadece yükle</button>

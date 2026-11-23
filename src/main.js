@@ -327,7 +327,16 @@ ipcMain.handle('slice:run', wrap(async (req) => {
 }));
 ipcMain.handle('print:send', wrap(async ({ jobId, printerId, start, slot }) => {
   const job = slicer().job(jobId);
-  return manager.get(printerId).printFile(job.path, { start: !!start, slot: slot === undefined ? null : slot });
+  const task = (printerCfg(printerId) || {}).calibration || {};
+  return manager.get(printerId).printFile(job.path, { start: !!start, slot: slot === undefined ? null : slot, task });
+}));
+// Baskı öncesi kalibrasyon tercihleri (yazıcı başına): tabla seviyeleme, rezonans telafisi, akış kalibrasyonu
+ipcMain.handle('printer:setCalibration', wrap((printerId, cal) => {
+  const p = printerCfg(printerId);
+  if (!p) throw new Error('Yazıcı bulunamadı');
+  p.calibration = { leveling: !!(cal && cal.leveling), vibration: !!(cal && cal.vibration), flow: !!(cal && cal.flow) };
+  saveConfig(); broadcast('config', publicConfig());
+  return p.calibration;
 }));
 ipcMain.on('open:orca', () => shell.openExternal('https://github.com/SoftFever/OrcaSlicer/releases/latest'));
 ipcMain.on('island:mouse', (_e, inside) => {

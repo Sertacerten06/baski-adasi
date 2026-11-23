@@ -57,6 +57,9 @@ Anycubic'te LAN modu açıkken yazıcı Anycubic bulut uygulamasından çıkar; 
   - Kalite, filament, tabla tipi, dolgu, destek, kenar (brim) ve ölçek ayarlanabilir. Kobra'da filamenti ACE yuvasından seçersin; 3B önizleme seçilen yuvanın rengiyle çizilir.
   - **Dilimle**'den sonra süre, gram, katman ve bitiş saati görünür. **Gönder ve başlat** dosyayı yükler ve baskıyı başlatır; başlatmadan önce tablanın boş olduğunu sorar. **Sadece yükle** dosyayı yazıcıya koyar, baskıyı sen başlatırsın.
   - Dosyaya yazıcı ekranında görünen küçük bir resim de eklenir.
+  - Anycubic yazıcılarda, Anycubic Slicer Next kuruluysa dilimleme onunla yapılır. Dosyası Kobra yazılımının beklediği ek bilgileri (filament rengi/türü, ilk katman sınırları) taşır. Diğer markalarda OrcaSlicer kullanılır.
+- **Baskı öncesi kalibrasyon (Kobra):** Kontroller kartında ve Yeni baskı ekranında **tabla seviyeleme**, **rezonans telafisi** ve **akış kalibrasyonu** seçenekleri var. Yazıcı başına hatırlanır; uygulamadan başlatılan baskılarda, baskıdan önce uygulanır.
+- **ACE Pro:** Bir makaraya tıklayıp filament türünü ve rengini değiştirebilirsin. Kurutmayı da buradan başlatıp durdurabilirsin (40-55°C, 2-12 saat).
 - **Bildirimler:** Baskı bitince, duraklayınca ya da hata verince sistem bildirimi gelir. Windows'ta bildirimler sadece kurulumlu sürümde çıkar.
 - **Arka planda çalışma:** Panel penceresini kapatınca uygulama tepside çalışmaya devam eder. Tamamen kapatmak için tepsi menüsünden **Çıkış**'ı seç. **Bilgisayar açılınca başlat** seçeneği de aynı menüde.
 
@@ -68,6 +71,8 @@ Anycubic'te LAN modu açıkken yazıcı Anycubic bulut uygulamasından çıkar; 
   - Olmazsa IP'yi elle gir.
 - **Ağ taraması neden yaklaşık 1 dakika sürüyor?** Hızlı tarama bazı yazıcıların (Kobra 3 gibi) Wi-Fi'sini birkaç saniye tıkayabiliyor. Bu yüzden tarama bilerek yavaş. Otomatik tarama 30 dakikada bir çalışır, ulaşılamayan bir yazıcı varsa 15 dakikada bir. IP'si değişen yazıcıyı da bulur.
 - **"Çevrimdışı" görünüyor:** Uygulama birkaç saniyede bir yeniden bağlanmayı dener. Yazıcı uyku modundaysa ya da Wi-Fi'si zayıfsa kısa kopmalar normal.
+- **Kobra'da tabla sıcaklığı değişmiyor:** Yazıcı boştayken tabla hedefini uzaktan kabul etmiyor; tablayı yazıcının ekranından ısıt. Nozul her zaman, tabla baskı sırasında uygulamadan değiştirilebilir. Fan ve hız modu da yalnızca baskı sırasında değişir.
+- **Baskı 11504 hatasıyla duruyor:** Kafada yazıcının tanımadığı bir filament var. Yazıcının ekranından filamenti geri çek (Unload), sonra tekrar başlat.
 - **"Dilimleyici bulunamadı":** OrcaSlicer'ı varsayılan konumuna kur (Windows'ta `Program Files`, Mac'te `Uygulamalar`), sonra **Yeniden ara**'ya bas.
 - **Model tablaya sığmıyor:** Ölçeği küçült. 3MF proje dosyalarında birden fazla tabla varsa yalnızca ilki dilimlenir.
 

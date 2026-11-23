@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   openModel: (file) => call('model:open', file ? webUtils.getPathForFile(file) : null),
   slice: (req) => call('slice:run', req),
   sendPrint: (req) => call('print:send', req),
+  setCalibration: (id, cal) => call('printer:setCalibration', id, cal),
   openOrcaDownload: () => ipcRenderer.send('open:orca'),
   islandMouse: (inside) => ipcRenderer.send('island:mouse', inside),
   onState: on('state'),

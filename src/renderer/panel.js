@@ -82,6 +82,24 @@ function go(v) {
 }
 
 // ---------- yazıcı görünümü ----------
+// Baskı öncesi kalibrasyon (yalnızca yazıcının desteklediği seçenekler; tercih yazıcı başına saklanır)
+const CAL_OPTIONS = [
+  ['leveling', 'autoLeveling', 'Tabla seviyeleme', 'Baskıdan önce tablayı otomatik ölçer'],
+  ['vibration', 'vibration', 'Rezonans telafisi', 'Titreşim (input shaping) ölçümü yapar'],
+  ['flow', 'flow', 'Akış kalibrasyonu', 'Ekstrüzyon akışını (pressure advance) ölçer'],
+];
+const calOf = (id) => ((config.printers || []).find((x) => x.id === id) || {}).calibration || {};
+function calibrationHTML(p) {
+  const f = p.features || {};
+  const opts = CAL_OPTIONS.filter(([, feat]) => f[feat]);
+  if (!p.caps.sendPrint || !opts.length) return '';
+  return `<div class="ctl-row col cal">
+    <div class="top"><span class="k">${ICONS.layers}Baskı öncesi kalibrasyon</span></div>
+    ${opts.map(([key, , title, desc]) => `<div class="cal-row"><div><b>${title}</b><span>${desc}</span></div><button class="switch" data-cal="${key}"></button></div>`).join('')}
+    <div class="tg-note">Uygulamadan başlatılan baskılarda uygulanır; baskı süresine birkaç dakika ekler.</div>
+  </div>`;
+}
+
 function skeleton(p) {
   const hasFil = !!(p.filaments && p.filaments.length);
   return `<div class="wrap">
@@ -99,7 +117,8 @@ function skeleton(p) {
         ${p.caps.speedMode ? `<div class="ctl-row col"><div class="top"><span class="k">${ICONS.clock}Hız modu</span></div>
           <div class="seg full"><button data-speed="1">Sessiz</button><button data-speed="2">Standart</button><button data-speed="3">Spor</button></div></div>` : ''}
         ${p.caps.fan ? `<div class="ctl-row col"><div class="top"><span class="k">${ICONS.fan}Parça fanı</span><span class="v" data-k="fanv">—</span></div>
-          <input type="range" min="0" max="100" step="5" id="fanRange"></div>` : ''}
+          <input type="range" min="0" max="100" step="5" id="fanRange"><div class="tg-note" data-k="jobOnlyNote"></div></div>` : ''}
+        ${calibrationHTML(p)}
         <div class="ctl-row col" style="gap:2px">
           <div class="kv"><span>Bağlantı</span><b>${p.kind === 'anycubic' ? 'Anycubic LAN (MQTT)' : 'Klipper · Moonraker'}</b></div>
           <div class="kv"><span>Adres</span><b>${esc(p.host)}${p.kind === 'moonraker' && p.port && p.port !== 80 ? ':' + p.port : ''}</b></div>
@@ -114,6 +133,7 @@ function skeleton(p) {
             <div class="cur" data-k="${h}Cur">—</div><div class="tg" data-k="${h}Tg">—</div>
             <div class="heat"><div data-k-bar="${h}" style="width:0;background:var(--${h})"></div></div>
             <div class="set"><input class="input" type="number" min="0" max="${h === 'nozzle' ? 300 : 120}" placeholder="°C" id="${h}In"><button class="btn sm" data-settemp="${h}">Ayarla</button></div>
+            ${h === 'bed' ? '<div class="tg-note" data-k="bedNote"></div>' : ''}
           </div>`).join('')}
         </div>
         <div class="presets">
@@ -190,7 +210,7 @@ function jobHTML(p) {
 function renderPrinter() {
   const p = cur();
   if (!p) return;
-  const key = `${p.id}|${p.kind}|${JSON.stringify(p.caps)}|${!!(p.filaments && p.filaments.length)}`;
+  const key = `${p.id}|${p.kind}|${JSON.stringify(p.caps)}|${JSON.stringify(p.features)}|${!!(p.filaments && p.filaments.length)}`;
   if (key !== skeletonKey) { $view.innerHTML = skeleton(p); skeletonKey = key; jobKey = null; filKey = null; filesKey = null; bindPrinterView(); }
 
   const st = statusOf(p);
@@ -235,6 +255,8 @@ function renderPrinter() {
   setK('fanv', p.fan != null ? `%${p.fan}` : '—');
   setK('jobOnlyNote', jobOnly ? 'Fan ve hız modu baskı sırasında değiştirilebilir.' : '');
   $view.querySelectorAll('[data-settemp],[data-pre]').forEach((b) => { b.disabled = !p.connected; });
+  const cal = calOf(p.id);
+  $view.querySelectorAll('[data-cal]').forEach((b) => b.classList.toggle('on', !!cal[b.dataset.cal]));
   // Kobra boştayken tabla hedefini uzaktan kabul etmiyor
   const bedLocked = p.kind === 'anycubic' && !p.caps.idleBedTemp && !inJob;
   const bedIn = $('#bedIn'); const bedBtn = $view.querySelector('[data-settemp="bed"]');
@@ -318,6 +340,13 @@ function bindPrinterView() {
       }
       if (b.dataset.dry === 'start') return run(() => api.cmd(id(), 'aceDry', { on: true, temp: Number($('#dryTemp').value), minutes: Number($('#dryTime').value) }), 'Kurutma başlatıldı');
       if (b.dataset.dry === 'stop') return run(() => api.cmd(id(), 'aceDry', { on: false }), 'Kurutma durduruldu');
+      if (b.dataset.cal) {
+        const next = { ...calOf(id()), [b.dataset.cal]: !b.classList.contains('on') };
+        b.classList.toggle('on');
+        const saved = await run(() => api.setCalibration(id(), next));
+        if (saved) { const pc = (config.printers || []).find((x) => x.id === id()); if (pc) pc.calibration = saved; }
+        return;
+      }
       if (act === 'slice') return openSlice({ printerId: id() });
       if (act === 'refresh') return run(() => api.cmd(id(), 'refresh'), 'Yenilendi');
       if (act === 'pause') return run(() => api.cmd(id(), 'pause'), 'Duraklatma komutu gönderildi');
@@ -333,7 +362,8 @@ function bindPrinterView() {
       }
       if (b.dataset.pre) {
         const [n, bed] = b.dataset.pre.split(',').map(Number);
-        return run(() => api.cmd(id(), 'preheat', { nozzle: n, bed }), n ? `Ön ısıtma ${n}° / ${bed}°` : 'Isıtıcılar kapatıldı');
+        // yazıcı bir not döndürürse (ör. Kobra'da tabla boştayken uzaktan ısınmıyor) onu göster
+        return run(async () => { const r = await api.cmd(id(), 'preheat', { nozzle: n, bed }); toast(r && r.note ? r.note : n ? `Ön ısıtma ${n}° / ${bed}°` : 'Isıtıcılar kapatıldı'); });
       }
       if (b.dataset.print) {
         const f = b.dataset.print;
