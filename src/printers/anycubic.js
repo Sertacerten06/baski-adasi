@@ -312,6 +312,7 @@ class AnycubicDriver extends BaseDriver {
       if (pr) {
         job = {
           file: String(pr.display_filename || pr.filename || '').replace(/^.*\//, ''),
+          rawFile: pr.filename || null, // yazıcının kendi yazımı (ör. ".3mf_temp/x.gcode"); resim isterken gerekir
           progress: Math.max(0, Math.min(100, Number(pr.progress) || 0)),
           layer: pr.curr_layer ?? null, totalLayers: pr.total_layers ?? null,
           elapsedMin: pr.print_time ?? null, remainingMin: pr.remain_time ?? null,
@@ -345,7 +346,7 @@ class AnycubicDriver extends BaseDriver {
         temp: box.temp ?? null, humidity: box.humidity || null,
         drying: box.drying_status && box.drying_status.status ? { target: box.drying_status.target_temp, remainingMin: box.drying_status.remain_time } : null,
       } : null,
-      files: r.files ? r.files.map((f) => ({ name: f.filename, size: f.size, date: f.timestamp })).sort((a, b) => b.date - a.date) : null,
+      files: r.files ? r.files.filter((f) => !f.is_dir).map((f) => ({ name: f.filename, size: f.size, date: f.timestamp, plate: f.plate_number || 1 })).sort((a, b) => b.date - a.date) : null,
     });
   }
 
@@ -387,6 +388,22 @@ class AnycubicDriver extends BaseDriver {
       case 'refresh': return this._pollAll();
       default: throw new Error('Bu yazıcıda desteklenmiyor');
     }
+  }
+
+  // Yazıcıdaki bir dosyanın resimleri (file/fileDetails; gerçek Kobra 3'te doğrulandı):
+  // thumbnail ≈ 230x110 dilimleyici önizlemesi, png_image = 512x512 üstten görünüm. Düz G-code'larda boş gelebilir.
+  async fileImages(filename, plate = 1) {
+    if (!this.state.connected) throw new Error('Yazıcıya bağlı değil');
+    const ans = await this._sendAndWait('file', 'fileDetails', { root: 'local', filename, plate_index: plate || 1 },
+      (m) => m.type === 'file' && m.action === 'fileDetails', 15000);
+    if (!ans || ans.code !== 200) return null;
+    const fd = (ans.data && ans.data.file_details) || {};
+    const png = (s) => {
+      if (typeof s !== 'string' || s.length < 100) return null;
+      const b = Buffer.from(s.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+      return b.length > 8 && b.length < 3 * 1024 * 1024 && b.toString('latin1', 1, 4) === 'PNG' ? b : null;
+    };
+    return { thumb: png(fd.thumbnail), top: png(fd.png_image) };
   }
 
   // ACE yuvasının filament türünü/rengini değiştir (multiColorBox/setInfo; gerçek Kobra 3'te doğrulandı)

@@ -46,6 +46,7 @@ class BaseDriver extends EventEmitter {
   async command() { throw new Error('Desteklenmiyor'); }
   async upload() { throw new Error('Bu yazıcıya dosya yüklenemiyor'); }
   async printFile() { throw new Error('Bu yazıcıya baskı gönderilemiyor'); }
+  async fileImages() { return null; }
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v))));

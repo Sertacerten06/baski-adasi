@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
   slice: (req) => call('slice:run', req),
   sendPrint: (req) => call('print:send', req),
   setCalibration: (id, cal) => call('printer:setCalibration', id, cal),
+  fileThumb: (id, name) => call('files:thumb', id, name),
   openOrcaDownload: () => ipcRenderer.send('open:orca'),
   islandMouse: (inside) => ipcRenderer.send('island:mouse', inside),
   onState: on('state'),

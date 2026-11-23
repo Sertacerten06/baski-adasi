@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- macOS menü çubuğu şablonu: yalnızca siyah ve saydamlık -->
+  <rect x="20" y="4" width="24" height="16" rx="4" fill="#000"/>
+  <path d="M23 20 H41 L36 32 H28 Z" fill="#000"/>
+  <rect x="16" y="40" width="32" height="7" rx="3.5" fill="#000"/>
+  <rect x="8" y="51" width="48" height="7" rx="3.5" fill="#000"/>
+</svg>

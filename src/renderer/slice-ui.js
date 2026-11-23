@@ -367,7 +367,7 @@ async function doSend(start) {
   }
   SL.sending = true; renderResult();
   try {
-    const res = await api.sendPrint({ jobId: r.id, printerId: r.printerId, start, slot: r.slot });
+    const res = await api.sendPrint({ jobId: r.id, printerId: r.printerId, start, slot: r.slot, preview: r.preview || null });
     toast(res && res.started ? `${p.name}: baskı başladı` : `${res ? res.name : r.name} yazıcıya yüklendi`);
     SL.sending = false;
     if (res && res.started) { go({ type: 'printer', id: p.id }); return; }

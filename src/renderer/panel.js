@@ -166,8 +166,10 @@ function jobHTML(p) {
       <div class="job-ring"><div data-k="ring">${ring(j.progress, RING, 14, st.color)}</div>
         <div class="c"><div class="pct" data-k="pct">%${j.progress}</div><div class="lbl" data-k="lbl"></div></div></div>
       <div class="job-info">
-        <div class="eyebrow" style="color:${st.color}" data-k="eyebrow">${esc(st.text)}</div>
-        <div class="job-file" data-k="file" title="${esc(j.file)}">${esc(prettyFile(j.file) || 'Baskı')}</div>
+        <div class="job-head"><div class="job-head-t">
+          <div class="eyebrow" style="color:${st.color}" data-k="eyebrow">${esc(st.text)}</div>
+          <div class="job-file" data-k="file" title="${esc(j.file)}">${esc(prettyFile(j.file) || 'Baskı')}</div></div>
+          <span class="job-img" data-job-img="${esc(j.rawFile || j.file)}"></span></div>
         <div class="tiles">
           <div class="tile"><div class="k">${ICONS.layers}Katman</div><div class="v" data-k="layer">—</div></div>
           <div class="tile"><div class="k">${ICONS.clock}Geçen</div><div class="v" data-k="elapsed">—</div></div>
@@ -221,7 +223,7 @@ function renderPrinter() {
 
   // baskı kartı
   const jk = `${p.status}|${p.statusText}|${!!p.job}|${p.error}|${heating(p)}|${p.cancelled}|${p.job ? p.job.file : ''}|${p.lastFailure ? p.lastFailure.at : ''}`;
-  if (jk !== jobKey) { $('#jobCard').innerHTML = jobHTML(p); jobKey = jk; }
+  if (jk !== jobKey) { $('#jobCard').innerHTML = jobHTML(p); jobKey = jk; loadThumbs(p.id); }
   if (p.job && ['printing', 'paused', 'busy'].includes(p.status)) {
     const j = p.job;
     setK('pct', `%${j.progress}`);
@@ -304,10 +306,13 @@ function renderPrinter() {
       else {
         fl.innerHTML = p.files.map((f) => {
           const ext = /\.3mf$/i.test(f.name) ? '3MF' : 'GCODE';
-          return `<li><span class="ext">${ext}</span><span class="nm" title="${esc(f.name)}">${esc(prettyFile(f.name))}</span>
-            <span class="meta">${fmtSize(f.size)}</span><span class="meta">${fmtDate(f.date)}</span>
+          return `<li data-file="${esc(f.name)}" title="Büyük önizleme için tıkla">
+            <span class="fthumb" data-thumb="${esc(f.name)}">${ICONS.file}</span>
+            <span class="finfo"><span class="nm">${esc(prettyFile(f.name))}</span>
+              <span class="meta"><span class="ext">${ext}</span>${fmtSize(f.size)} · ${fmtDate(f.date)}</span></span>
             ${p.caps.startPrint ? `<button class="btn sm" data-print="${esc(f.name)}" ${busy || !p.connected ? 'disabled' : ''}>${ICONS.play}Yazdır</button>` : ''}</li>`;
         }).join('');
+        loadThumbs(p.id);
       }
     }
   }
@@ -372,6 +377,10 @@ function bindPrinterView() {
       }
     }
     if (e.target.closest('#dropZone')) doUpload(null);
+    const li = e.target.closest('#fileList li[data-file]');
+    if (li && !b) openPreview(id(), li.dataset.file);
+    const ji = e.target.closest('[data-job-img].has');
+    if (ji) openPreview(id(), ji.dataset.jobImg);
   };
   $view.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('.temp .input')) e.target.parentElement.querySelector('button').click(); };
   $view.oninput = (e) => {
@@ -402,6 +411,53 @@ async function doUpload(file) {
   uploading = false;
   if (dz) { dz.classList.remove('busy'); dz.innerHTML = prev; }
 }
+
+// ---------- dosya resimleri (eski baskılar) ----------
+// Ana süreç resmi yazıcıdan bir kez alıp diske kaydeder; burada da oturum boyunca tutulur.
+const thumbCache = new Map(); // `${yazıcı}|${dosya}` -> data URL | null (resim yok)
+let thumbBusy = false;
+function fillThumb(el, url) {
+  if (url) el.innerHTML = `<img src="${url}" alt="">`;
+  el.classList.toggle('none', url === null);
+  el.classList.toggle('has', !!url);
+}
+async function loadThumbs(printerId) {
+  for (const el of $view.querySelectorAll('[data-thumb],[data-job-img]')) {
+    const key = `${printerId}|${el.dataset.thumb || el.dataset.jobImg}`;
+    if (thumbCache.has(key)) fillThumb(el, thumbCache.get(key));
+  }
+  if (thumbBusy) return;
+  thumbBusy = true;
+  try {
+    // önce baskıdaki işin resmi, sonra listedekiler yukarıdan aşağı; yazıcıya sırayla sorulur
+    for (;;) {
+      if (view.type !== 'printer' || view.id !== printerId) break;
+      const el = [...$view.querySelectorAll('[data-job-img]'), ...$view.querySelectorAll('[data-thumb]')]
+        .find((x) => !thumbCache.has(`${printerId}|${x.dataset.thumb || x.dataset.jobImg}`));
+      if (!el) break;
+      const name = el.dataset.thumb || el.dataset.jobImg;
+      let url = null;
+      try { url = await api.fileThumb(printerId, name); } catch { url = null; }
+      thumbCache.set(`${printerId}|${name}`, url);
+      $view.querySelectorAll(`[data-thumb="${CSS.escape(name)}"],[data-job-img="${CSS.escape(name)}"]`).forEach((x) => fillThumb(x, url));
+    }
+  } finally { thumbBusy = false; }
+}
+
+function openPreview(printerId, name) {
+  const p = printers.find((x) => x.id === printerId) || {};
+  const f = (p.files || []).find((x) => x.name === name) || {};
+  const url = thumbCache.get(`${printerId}|${name}`);
+  const ov = document.createElement('div');
+  ov.className = 'lightbox';
+  ov.innerHTML = `<div class="lb-card">
+    <div class="lb-img">${url ? `<img src="${url}" alt="">` : `<div class="lb-none">${ICONS.file}<span>Bu dosya için resim yok</span></div>`}</div>
+    <div class="lb-info"><b>${esc(prettyFile(name))}</b><span>${esc(name)}</span>${f.date ? `<span>${fmtSize(f.size)} · ${fmtDate(f.date)}</span>` : ''}</div>
+    <div class="actions"><button class="btn" data-lb-close>Kapat</button></div></div>`;
+  ov.addEventListener('click', (e) => { if (e.target === ov || e.target.closest('[data-lb-close]')) ov.remove(); });
+  document.body.appendChild(ov);
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.lightbox').forEach((x) => x.remove()); });
 
 // sürükle-bırak (pencerenin her yerine): model dosyası dilimlemeye, G-code yazıcıya
 const MODEL_RE = /\.(stl|obj|3mf|step|stp|amf)$/i;

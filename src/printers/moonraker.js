@@ -179,6 +179,7 @@ class MoonrakerDriver extends BaseDriver {
       const info = ps.info || {};
       job = {
         file: String(ps.filename || '').replace(/^.*\//, ''),
+        rawFile: ps.filename || null,
         progress: Math.round((status === 'finished' ? 1 : prog) * 100),
         layer: info.current_layer ?? null,
         totalLayers: info.total_layer ?? (this.meta && this.meta.layer_count) ?? null,
@@ -245,6 +246,24 @@ class MoonrakerDriver extends BaseDriver {
     let stored = name;
     try { const j = JSON.parse(res.text); if (j.result && j.result.item && j.result.item.path) stored = j.result.item.path; } catch { /* */ }
     return stored;
+  }
+
+  // Dosyanın küçük resmi: Moonraker metadata'sındaki en büyük (≤ 512 px) küçük resim
+  async fileImages(filename) {
+    const meta = await this.call('server.files.metadata', { filename });
+    const list = (meta && meta.thumbnails) || [];
+    const pick = list.filter((t) => t.relative_path && t.width <= 512).sort((a, b) => b.width - a.width)[0];
+    if (!pick) return null;
+    const dir = filename.includes('/') ? filename.slice(0, filename.lastIndexOf('/') + 1) : '';
+    const url = `${this.base}/server/files/gcodes/${(dir + pick.relative_path).split('/').map(encodeURIComponent).join('/')}`;
+    const http = require('http');
+    const buf = await new Promise((resolve, reject) => {
+      http.get(url, { timeout: 10000 }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
+        const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject).on('timeout', function onTimeout() { this.destroy(new Error('zaman aşımı')); });
+    });
+    return buf && buf.toString('latin1', 1, 4) === 'PNG' ? { thumb: buf, top: null } : null;
   }
 
   // Uygulamada dilimlenen G-code'u yükle ve isteğe bağlı olarak başlat

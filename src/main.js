@@ -325,10 +325,49 @@ ipcMain.handle('slice:run', wrap(async (req) => {
   if (p && req.prefs) { p.slicePrefs = req.prefs; saveConfig(); }
   return job;
 }));
-ipcMain.handle('print:send', wrap(async ({ jobId, printerId, start, slot }) => {
+ipcMain.handle('print:send', wrap(async ({ jobId, printerId, start, slot, preview }) => {
   const job = slicer().job(jobId);
   const task = (printerCfg(printerId) || {}).calibration || {};
-  return manager.get(printerId).printFile(job.path, { start: !!start, slot: slot === undefined ? null : slot, task });
+  const d = manager.get(printerId);
+  const res = await d.printFile(job.path, { start: !!start, slot: slot === undefined ? null : slot, task });
+  // Yazıcı düz G-code'larda resim vermiyor: dilimleme önizlemesini bu dosya adıyla sakla
+  const m = /^data:image\/png;base64,(.+)$/.exec(preview || '');
+  if (m && res && res.name) { try { saveThumb(d.state, res.name, Buffer.from(m[1], 'base64')); } catch { /* önbellek yazılamazsa sorun değil */ } }
+  return res;
+}));
+
+// ---------- dosya resimleri (eski baskılar) ----------
+// Yazıcıdan bir kez alınır, kullanıcı klasöründe saklanır. Yazıcıya aynı anda tek istek gider.
+const thumbDir = () => path.join(app.getPath('userData'), 'resimler');
+const thumbBase = (st, name) => path.join(thumbDir(), crypto.createHash('sha1').update(`${st.uid || st.host}|${name}`).digest('hex'));
+function saveThumb(st, name, buf) {
+  fs.mkdirSync(thumbDir(), { recursive: true });
+  fs.writeFileSync(`${thumbBase(st, name)}.png`, buf);
+  fs.rmSync(`${thumbBase(st, name)}.yok`, { force: true });
+}
+const thumbQueue = new Map(); // yazıcı -> sıradaki istek zinciri
+ipcMain.handle('files:thumb', wrap(async (printerId, name) => {
+  const d = manager.get(printerId);
+  const st = d.state;
+  const base = thumbBase(st, name);
+  if (fs.existsSync(`${base}.png`)) return `data:image/png;base64,${fs.readFileSync(`${base}.png`).toString('base64')}`;
+  if (fs.existsSync(`${base}.yok`) && Date.now() - fs.statSync(`${base}.yok`).mtimeMs < 86400000) return null;
+  if (!st.connected) return null;
+  const file = (st.files || []).find((f) => f.name === name) || {};
+  const prev = thumbQueue.get(printerId) || Promise.resolve();
+  const next = prev.catch(() => {}).then(async () => {
+    const imgs = await d.fileImages(name, file.plate);
+    await new Promise((r) => setTimeout(r, 300)); // yazıcıya nefes aldır
+    return imgs;
+  });
+  thumbQueue.set(printerId, next);
+  let imgs = null;
+  try { imgs = await next; } catch { return null; }
+  const best = imgs && (imgs.top || imgs.thumb);
+  fs.mkdirSync(thumbDir(), { recursive: true });
+  if (!best) { fs.writeFileSync(`${base}.yok`, ''); return null; }
+  fs.writeFileSync(`${base}.png`, best);
+  return `data:image/png;base64,${best.toString('base64')}`;
 }));
 // Baskı öncesi kalibrasyon tercihleri (yazıcı başına): tabla seviyeleme, rezonans telafisi, akış kalibrasyonu
 ipcMain.handle('printer:setCalibration', wrap((printerId, cal) => {

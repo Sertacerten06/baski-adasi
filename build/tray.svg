@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- küçük boyut için sade: turuncu kare, beyaz nozul, koyu iki katman -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#F86A26"/>
+  <rect x="20" y="9" width="24" height="15" rx="4" fill="#FFFFFF"/>
+  <path d="M23 24 H41 L36 35 H28 Z" fill="#FFFFFF"/>
+  <rect x="17" y="41" width="30" height="6" rx="3" fill="#121417"/>
+  <rect x="11" y="50" width="42" height="6" rx="3" fill="#121417"/>
+</svg>
